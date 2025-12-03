@@ -7,10 +7,13 @@ import OpenAI from "openai";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OpenAI;
 let classifierInitialized = false;
 
-if (!classifierInitialized) {
-  initClassifier({ openaiApiKey: OPENAI_API_KEY });
-  classifierInitialized = true;
-}
+// Initialize classifier asynchronously
+(async () => {
+  if (!classifierInitialized) {
+    await initClassifier({ openaiApiKey: OPENAI_API_KEY });
+    classifierInitialized = true;
+  }
+})();
 
 // Embedding function
 const getEmbedding = async (text) => {
