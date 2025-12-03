@@ -9,6 +9,19 @@ export async function POST() {
     console.log('Starting embedding recomputation request...');
     const result = await recomputeEmbeddings();
     console.log('Recomputation completed successfully:', result);
+
+    // If embeddings weren't persisted (read-only environment), return a warning
+    if (result.persisted === false) {
+      return NextResponse.json(
+        {
+          ...result,
+          warning: 'Embeddings were computed but not persisted due to read-only filesystem. ' +
+                   'They will be computed on-demand during classification.'
+        },
+        { status: 200 }
+      );
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     console.error('Error recomputing embeddings:', error);

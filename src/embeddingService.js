@@ -123,6 +123,35 @@ export async function recomputeEmbeddings() {
       }
     }
 
+    // Check if we're in a read-only environment
+    const isReadOnly =
+      process.env.VERCEL === "1" ||
+      process.env.VERCEL_ENV ||
+      process.env.READ_ONLY_FS === "1";
+
+    if (isReadOnly) {
+      console.warn(
+        "⚠️  Running in read-only environment (Vercel). " +
+        "Embeddings cannot be saved to disk. " +
+        "They will be computed on-demand or you can precompute them during build."
+      );
+      // In read-only environment, we can't save embeddings
+      // The embeddings will be computed on-demand during classification
+      // Return success but note that embeddings weren't persisted
+      return {
+        success: true,
+        message:
+          "Embeddings recomputed but not persisted (read-only environment). " +
+          "Embeddings will be computed on-demand during classification.",
+        labelsProcessed: labels.length,
+        totalExamples: Object.values(embeddings).reduce(
+          (sum, arr) => sum + arr.length,
+          0
+        ),
+        persisted: false,
+      };
+    }
+
     const embeddingsPath = findEmbeddingsFile();
 
     // Ensure directory exists
@@ -131,14 +160,37 @@ export async function recomputeEmbeddings() {
       fs.mkdirSync(embeddingsDir, { recursive: true });
     }
 
-    fs.writeFileSync(
-      embeddingsPath,
-      JSON.stringify(embeddings, null, 2),
-      "utf-8"
-    );
+    try {
+      fs.writeFileSync(
+        embeddingsPath,
+        JSON.stringify(embeddings, null, 2),
+        "utf-8"
+      );
 
-    console.log("Embeddings recomputed successfully!");
-    console.log(`Embeddings saved to: ${embeddingsPath}`);
+      console.log("Embeddings recomputed successfully!");
+      console.log(`Embeddings saved to: ${embeddingsPath}`);
+    } catch (err) {
+      // Check if it's a read-only filesystem error
+      if (err.code === "EROFS") {
+        console.warn(
+          "⚠️  File system is read-only. Embeddings cannot be saved. " +
+          "They will be computed on-demand during classification."
+        );
+        return {
+          success: true,
+          message:
+            "Embeddings recomputed but not persisted (read-only filesystem). " +
+            "Embeddings will be computed on-demand during classification.",
+          labelsProcessed: labels.length,
+          totalExamples: Object.values(embeddings).reduce(
+            (sum, arr) => sum + arr.length,
+            0
+          ),
+          persisted: false,
+        };
+      }
+      throw err;
+    }
 
     // Reload embeddings in classifier
     initClassifier({ openaiApiKey: OPENAI_API_KEY });
@@ -153,6 +205,7 @@ export async function recomputeEmbeddings() {
       message: "Embeddings recomputed successfully",
       labelsProcessed: labels.length,
       totalExamples: totalExamples,
+      persisted: true,
     };
   } catch (err) {
     console.error("Error recomputing embeddings:", err);
