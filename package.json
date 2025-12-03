@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/ensure-embeddings.js",
     "build": "next build",
     "start": "next start",
     "server": "node src/server.js",

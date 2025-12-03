@@ -13,11 +13,49 @@ const projectRoot = path.resolve(__dirname, "..");
 let embeddings = {};
 let client;
 
+// Helper function to find embeddings file using multiple path strategies
+function findEmbeddingsFile() {
+  const possiblePaths = [
+    // Standard path from project root
+    path.resolve(projectRoot, "src", "classifier_embeddings.json"),
+    // Path relative to current working directory (for Vercel)
+    path.resolve(process.cwd(), "src", "classifier_embeddings.json"),
+    // Path from __dirname (current file location)
+    path.resolve(__dirname, "classifier_embeddings.json"),
+    // Absolute path fallback
+    "/vercel/path0/src/classifier_embeddings.json",
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+
+  return null;
+}
+
 // Initialize classifier and optionally OpenAI client for GPT fallback
 export function initClassifier({ openaiApiKey } = {}) {
-  const p = path.resolve(projectRoot, "src", "classifier_embeddings.json");
-  embeddings = JSON.parse(fs.readFileSync(p, "utf-8"));
-  console.log("Embeddings loaded");
+  const embeddingsPath = findEmbeddingsFile();
+
+  if (embeddingsPath) {
+    try {
+      embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
+      console.log(`Embeddings loaded from: ${embeddingsPath}`);
+    } catch (err) {
+      console.warn(
+        "Failed to load embeddings file, using empty embeddings:",
+        err.message
+      );
+      embeddings = {};
+    }
+  } else {
+    console.warn(
+      "Embeddings file not found. Using empty embeddings. Please run recompute-embeddings endpoint to generate it."
+    );
+    embeddings = {};
+  }
 
   if (openaiApiKey) {
     client = new OpenAI({ apiKey: openaiApiKey, timeout: 120000 });
@@ -29,7 +67,9 @@ export function initClassifier({ openaiApiKey } = {}) {
 function cosineSimilarity(vecA, vecB) {
   if (!Array.isArray(vecA) || !Array.isArray(vecB)) return 0;
   const minL = Math.min(vecA.length, vecB.length);
-  let dot = 0, na = 0, nb = 0;
+  let dot = 0,
+    na = 0,
+    nb = 0;
   for (let i = 0; i < minL; i++) {
     dot += vecA[i] * vecB[i];
     na += vecA[i] * vecA[i];
@@ -98,7 +138,15 @@ Request: """${text}"""
       const parsed = JSON.parse(content);
       if (
         parsed.label &&
-        ["low_effort","reasoning","code","image_generation","image_edit","web_surfing","ppt_generation"].includes(parsed.label)
+        [
+          "low_effort",
+          "reasoning",
+          "code",
+          "image_generation",
+          "image_edit",
+          "web_surfing",
+          "ppt_generation",
+        ].includes(parsed.label)
       ) {
         return { ...parsed, tokens }; // { label, confidence, tokens }
       }
@@ -106,7 +154,15 @@ Request: """${text}"""
       // fallback: if GPT didn't return JSON, just return label with default confidence
       const label = content.split("\n")[0].trim();
       if (
-        ["low_effort","reasoning","code","image_generation","image_edit","web_surfing","ppt_generation"].includes(label)
+        [
+          "low_effort",
+          "reasoning",
+          "code",
+          "image_generation",
+          "image_edit",
+          "web_surfing",
+          "ppt_generation",
+        ].includes(label)
       ) {
         return { label, confidence: 0.5, tokens };
       }
@@ -121,14 +177,29 @@ Request: """${text}"""
 
 // Reload embeddings (useful after recomputation)
 export function reloadEmbeddings() {
-  const p = path.resolve(projectRoot, "src", "classifier_embeddings.json");
-  embeddings = JSON.parse(fs.readFileSync(p, "utf-8"));
-  console.log("Embeddings reloaded");
+  const embeddingsPath = findEmbeddingsFile();
+
+  if (embeddingsPath) {
+    try {
+      embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
+      console.log(`Embeddings reloaded from: ${embeddingsPath}`);
+    } catch (err) {
+      console.warn("Failed to reload embeddings:", err.message);
+      embeddings = {};
+    }
+  } else {
+    console.warn("Embeddings file not found during reload");
+    embeddings = {};
+  }
 }
 
 // Classify text: primary embedding + optional GPT fallback
 // getEmbedding can return just embedding array or { embedding, usage }
-export async function classifyText(getEmbedding, text, { useGptFallback = true } = {}) {
+export async function classifyText(
+  getEmbedding,
+  text,
+  { useGptFallback = true } = {}
+) {
   let source = "local"; // default
   let result;
   let consumption = {
@@ -150,7 +221,8 @@ export async function classifyText(getEmbedding, text, { useGptFallback = true }
       embeddingTokens = Math.ceil(text.length / 4);
     } else if (embeddingResponse.embedding) {
       inputEmbedding = embeddingResponse.embedding;
-      embeddingTokens = embeddingResponse.usage?.total_tokens || Math.ceil(text.length / 4);
+      embeddingTokens =
+        embeddingResponse.usage?.total_tokens || Math.ceil(text.length / 4);
     } else {
       inputEmbedding = embeddingResponse;
       embeddingTokens = Math.ceil(text.length / 4);
@@ -172,7 +244,7 @@ export async function classifyText(getEmbedding, text, { useGptFallback = true }
         label: best.label,
         score: best.score,
         source,
-        consumption
+        consumption,
       };
       return result;
     }
@@ -184,12 +256,14 @@ export async function classifyText(getEmbedding, text, { useGptFallback = true }
         // Calculate costs
         const embeddingCost = (embeddingTokens / 1000) * 0.00013;
         const gptInputCost = ((gptResult.tokens?.input || 0) / 1000000) * 0.15;
-        const gptOutputCost = ((gptResult.tokens?.output || 0) / 1000000) * 0.60;
+        const gptOutputCost = ((gptResult.tokens?.output || 0) / 1000000) * 0.6;
         const gptCost = gptInputCost + gptOutputCost;
 
-        consumption.tokens.input = embeddingTokens + (gptResult.tokens?.input || 0);
+        consumption.tokens.input =
+          embeddingTokens + (gptResult.tokens?.input || 0);
         consumption.tokens.output = gptResult.tokens?.output || 0;
-        consumption.tokens.total = embeddingTokens + (gptResult.tokens?.total || 0);
+        consumption.tokens.total =
+          embeddingTokens + (gptResult.tokens?.total || 0);
         consumption.cost.embeddings = embeddingCost;
         consumption.cost.gpt = gptCost;
         consumption.cost.total = embeddingCost + gptCost;
@@ -199,7 +273,7 @@ export async function classifyText(getEmbedding, text, { useGptFallback = true }
           label: gptResult.label,
           score: gptResult.confidence ?? 0.5,
           source: "fallback",
-          consumption
+          consumption,
         };
         return result;
       }
@@ -217,7 +291,7 @@ export async function classifyText(getEmbedding, text, { useGptFallback = true }
       label: "low_effort",
       score: 0,
       source,
-      consumption
+      consumption,
     };
     return result;
   } catch (err) {
