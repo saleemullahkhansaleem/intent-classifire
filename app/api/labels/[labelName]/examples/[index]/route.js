@@ -36,6 +36,19 @@ export async function PUT(request, { params }) {
     });
   } catch (error) {
     console.error('Error updating example:', error);
+
+    // Check if it's a read-only filesystem error
+    if (error.message && error.message.includes('read-only')) {
+      return NextResponse.json(
+        {
+          error: 'File writes not supported in serverless environment',
+          details: error.message,
+          suggestion: 'Please update data/labels.json in your repository and redeploy, or use a database/storage solution.'
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Failed to update example', details: error.message },
       { status: 400 }
@@ -68,6 +81,19 @@ export async function DELETE(request, { params }) {
     });
   } catch (error) {
     console.error('Error deleting example:', error);
+
+    // Check if it's a read-only filesystem error
+    if (error.message && error.message.includes('read-only')) {
+      return NextResponse.json(
+        {
+          error: 'File writes not supported in serverless environment',
+          details: error.message,
+          suggestion: 'Please update data/labels.json in your repository and redeploy, or use a database/storage solution.'
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Failed to delete example', details: error.message },
       { status: 400 }

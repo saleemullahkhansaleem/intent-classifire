@@ -51,8 +51,26 @@ export function readLabels() {
   }
 }
 
+// Check if we're in a read-only environment (like Vercel serverless)
+function isReadOnlyEnvironment() {
+  return (
+    process.env.VERCEL === "1" ||
+    process.env.VERCEL_ENV ||
+    process.env.READ_ONLY_FS === "1"
+  );
+}
+
 // Write labels to file
 export function writeLabels(labels) {
+  // Check if we're in a read-only environment
+  if (isReadOnlyEnvironment()) {
+    throw new Error(
+      "File writes are not supported in serverless environments (Vercel). " +
+      "To modify labels, please update data/labels.json in your repository and redeploy, " +
+      "or use a database/storage solution like Vercel Blob Storage."
+    );
+  }
+
   const labelsPath = findLabelsFile();
 
   if (!labelsPath) {
@@ -71,6 +89,13 @@ export function writeLabels(labels) {
       );
       return true;
     } catch (err) {
+      // Check if it's a read-only filesystem error
+      if (err.code === "EROFS") {
+        throw new Error(
+          "File system is read-only. This operation is not supported in serverless environments. " +
+          "Please update data/labels.json in your repository and redeploy."
+        );
+      }
       console.error("Error writing labels:", err);
       throw new Error(`Failed to write labels file: ${err.message}`);
     }
@@ -80,6 +105,13 @@ export function writeLabels(labels) {
     fs.writeFileSync(labelsPath, JSON.stringify(labels, null, 2), "utf-8");
     return true;
   } catch (err) {
+    // Check if it's a read-only filesystem error
+    if (err.code === "EROFS") {
+      throw new Error(
+        "File system is read-only. This operation is not supported in serverless environments. " +
+        "Please update data/labels.json in your repository and redeploy."
+      );
+    }
     console.error("Error writing labels:", err);
     throw new Error(`Failed to write labels file: ${err.message}`);
   }
