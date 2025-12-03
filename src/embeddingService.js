@@ -35,14 +35,60 @@ async function getEmbedding(text) {
   }
 }
 
+// Helper function to find labels file using multiple path strategies
+function findLabelsFile() {
+  const possiblePaths = [
+    // Standard path from project root
+    path.resolve(projectRoot, "data", "labels.json"),
+    // Path relative to current working directory (for Vercel)
+    path.resolve(process.cwd(), "data", "labels.json"),
+    // Path from __dirname (current file location)
+    path.resolve(__dirname, "..", "data", "labels.json"),
+    // Absolute path fallback for Vercel
+    "/vercel/path0/data/labels.json",
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+
+  return null;
+}
+
+// Helper function to find embeddings file using multiple path strategies
+function findEmbeddingsFile() {
+  const possiblePaths = [
+    // Standard path from project root
+    path.resolve(projectRoot, "src", "classifier_embeddings.json"),
+    // Path relative to current working directory (for Vercel)
+    path.resolve(process.cwd(), "src", "classifier_embeddings.json"),
+    // Path from __dirname (current file location)
+    path.resolve(__dirname, "classifier_embeddings.json"),
+    // Absolute path fallback for Vercel
+    "/vercel/path0/src/classifier_embeddings.json",
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+
+  // If not found, return default path for writing
+  return path.resolve(projectRoot, "src", "classifier_embeddings.json");
+}
+
 // Recompute embeddings for all labels
 export async function recomputeEmbeddings() {
   try {
-    // Use absolute paths from project root
-    const labelsPath = path.resolve(projectRoot, "data", "labels.json");
+    const labelsPath = findLabelsFile();
 
-    if (!fs.existsSync(labelsPath)) {
-      throw new Error(`Labels file not found at: ${labelsPath}`);
+    if (!labelsPath) {
+      throw new Error(
+        "Labels file not found. Please ensure data/labels.json exists in the project."
+      );
     }
 
     const labels = JSON.parse(fs.readFileSync(labelsPath, "utf-8"));
@@ -57,7 +103,9 @@ export async function recomputeEmbeddings() {
 
     for (const label of labels) {
       embeddings[label.name] = [];
-      console.log(`Processing label: ${label.name} (${label.examples?.length || 0} examples)`);
+      console.log(
+        `Processing label: ${label.name} (${label.examples?.length || 0} examples)`
+      );
 
       if (!label.examples || label.examples.length === 0) {
         console.warn(`No examples found for label: ${label.name}`);
@@ -75,7 +123,14 @@ export async function recomputeEmbeddings() {
       }
     }
 
-    const embeddingsPath = path.resolve(projectRoot, "src", "classifier_embeddings.json");
+    const embeddingsPath = findEmbeddingsFile();
+
+    // Ensure directory exists
+    const embeddingsDir = path.dirname(embeddingsPath);
+    if (!fs.existsSync(embeddingsDir)) {
+      fs.mkdirSync(embeddingsDir, { recursive: true });
+    }
+
     fs.writeFileSync(
       embeddingsPath,
       JSON.stringify(embeddings, null, 2),
@@ -88,7 +143,10 @@ export async function recomputeEmbeddings() {
     // Reload embeddings in classifier
     initClassifier({ openaiApiKey: OPENAI_API_KEY });
 
-    const totalExamples = Object.values(embeddings).reduce((sum, arr) => sum + arr.length, 0);
+    const totalExamples = Object.values(embeddings).reduce(
+      (sum, arr) => sum + arr.length,
+      0
+    );
 
     return {
       success: true,
