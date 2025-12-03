@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
+import { readEmbeddings } from "./storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,7 +14,7 @@ const projectRoot = path.resolve(__dirname, "..");
 let embeddings = {};
 let client;
 
-// Helper function to find embeddings file using multiple path strategies
+// Helper function to find embeddings file using multiple path strategies (fallback)
 function findEmbeddingsFile() {
   const possiblePaths = [
     // Standard path from project root
@@ -36,25 +37,52 @@ function findEmbeddingsFile() {
 }
 
 // Initialize classifier and optionally OpenAI client for GPT fallback
-export function initClassifier({ openaiApiKey } = {}) {
-  const embeddingsPath = findEmbeddingsFile();
-
-  if (embeddingsPath) {
-    try {
-      embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
-      console.log(`Embeddings loaded from: ${embeddingsPath}`);
-    } catch (err) {
-      console.warn(
-        "Failed to load embeddings file, using empty embeddings:",
-        err.message
-      );
+export async function initClassifier({ openaiApiKey } = {}) {
+  // Try to load from storage (Blob Storage or file system)
+  try {
+    const storedEmbeddings = await readEmbeddings();
+    if (storedEmbeddings) {
+      embeddings = storedEmbeddings;
+      console.log("Embeddings loaded from storage");
+    } else {
+      // Fallback to file system if storage returns null
+      const embeddingsPath = findEmbeddingsFile();
+      if (embeddingsPath) {
+        try {
+          embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
+          console.log(`Embeddings loaded from file: ${embeddingsPath}`);
+        } catch (err) {
+          console.warn(
+            "Failed to load embeddings file, using empty embeddings:",
+            err.message
+          );
+          embeddings = {};
+        }
+      } else {
+        console.warn(
+          "Embeddings file not found. Using empty embeddings. Please run recompute-embeddings endpoint to generate it."
+        );
+        embeddings = {};
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "Error loading embeddings from storage, trying file system:",
+      err.message
+    );
+    // Fallback to file system
+    const embeddingsPath = findEmbeddingsFile();
+    if (embeddingsPath) {
+      try {
+        embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
+        console.log(`Embeddings loaded from file: ${embeddingsPath}`);
+      } catch (fileErr) {
+        console.warn("Failed to load embeddings, using empty embeddings");
+        embeddings = {};
+      }
+    } else {
       embeddings = {};
     }
-  } else {
-    console.warn(
-      "Embeddings file not found. Using empty embeddings. Please run recompute-embeddings endpoint to generate it."
-    );
-    embeddings = {};
   }
 
   if (openaiApiKey) {
@@ -176,19 +204,30 @@ Request: """${text}"""
 }
 
 // Reload embeddings (useful after recomputation)
-export function reloadEmbeddings() {
-  const embeddingsPath = findEmbeddingsFile();
-
-  if (embeddingsPath) {
-    try {
-      embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
-      console.log(`Embeddings reloaded from: ${embeddingsPath}`);
-    } catch (err) {
-      console.warn("Failed to reload embeddings:", err.message);
-      embeddings = {};
+export async function reloadEmbeddings() {
+  try {
+    const storedEmbeddings = await readEmbeddings();
+    if (storedEmbeddings) {
+      embeddings = storedEmbeddings;
+      console.log("Embeddings reloaded from storage");
+    } else {
+      // Fallback to file system
+      const embeddingsPath = findEmbeddingsFile();
+      if (embeddingsPath) {
+        try {
+          embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
+          console.log(`Embeddings reloaded from file: ${embeddingsPath}`);
+        } catch (err) {
+          console.warn("Failed to reload embeddings:", err.message);
+          embeddings = {};
+        }
+      } else {
+        console.warn("Embeddings file not found during reload");
+        embeddings = {};
+      }
     }
-  } else {
-    console.warn("Embeddings file not found during reload");
+  } catch (err) {
+    console.warn("Error reloading embeddings from storage:", err.message);
     embeddings = {};
   }
 }

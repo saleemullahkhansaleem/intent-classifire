@@ -4,7 +4,7 @@ import { getLabelByName } from "@/src/labelsManager.js";
 export async function GET(request, { params }) {
   try {
     const { labelName } = params;
-    const label = getLabelByName(labelName);
+    const label = await getLabelByName(labelName);
 
     if (!label) {
       return NextResponse.json(

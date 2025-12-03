@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
-import { addExampleToLabel } from '@/src/labelsManager.js';
-import { recomputeEmbeddings } from '@/src/embeddingService.js';
+import { NextResponse } from "next/server";
+import { addExampleToLabel } from "@/src/labelsManager.js";
+import { recomputeEmbeddings } from "@/src/embeddingService.js";
 
 export async function POST(request, { params }) {
   try {
@@ -10,41 +10,42 @@ export async function POST(request, { params }) {
 
     if (!example) {
       return NextResponse.json(
-        { error: 'Example is required' },
+        { error: "Example is required" },
         { status: 400 }
       );
     }
 
-    const updatedLabel = addExampleToLabel(labelName, example);
+    const updatedLabel = await addExampleToLabel(labelName, example);
 
     // Trigger recomputation (don't wait for it to complete)
     recomputeEmbeddings().catch((err) => {
-      console.error('Error recomputing embeddings in background:', err);
+      console.error("Error recomputing embeddings in background:", err);
     });
 
     return NextResponse.json({
-      message: 'Example added successfully. Embeddings are being recomputed in the background.',
+      message:
+        "Example added successfully. Embeddings are being recomputed in the background.",
       label: updatedLabel,
     });
   } catch (error) {
-    console.error('Error adding example:', error);
+    console.error("Error adding example:", error);
 
     // Check if it's a read-only filesystem error
-    if (error.message && error.message.includes('read-only')) {
+    if (error.message && error.message.includes("read-only")) {
       return NextResponse.json(
         {
-          error: 'File writes not supported in serverless environment',
+          error: "File writes not supported in serverless environment",
           details: error.message,
-          suggestion: 'Please update data/labels.json in your repository and redeploy, or use a database/storage solution.'
+          suggestion:
+            "Please update data/labels.json in your repository and redeploy, or use a database/storage solution.",
         },
         { status: 503 }
       );
     }
 
     return NextResponse.json(
-      { error: 'Failed to add example', details: error.message },
+      { error: "Failed to add example", details: error.message },
       { status: 400 }
     );
   }
 }
-

@@ -1,10 +1,10 @@
 // src/embeddingService.js
-import 'dotenv/config';
-import fs from "fs";
+import "dotenv/config";
 import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { initClassifier } from "./classifier.js";
+import { readLabels, writeEmbeddings } from "./storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,81 +30,36 @@ async function getEmbedding(text) {
 
     return response.data[0].embedding;
   } catch (err) {
-    console.error(`OpenAI API error for text "${text.substring(0, 50)}...":`, err.message);
+    console.error(
+      `OpenAI API error for text "${text.substring(0, 50)}...":`,
+      err.message
+    );
     throw err;
   }
-}
-
-// Helper function to find labels file using multiple path strategies
-function findLabelsFile() {
-  const possiblePaths = [
-    // Standard path from project root
-    path.resolve(projectRoot, "data", "labels.json"),
-    // Path relative to current working directory (for Vercel)
-    path.resolve(process.cwd(), "data", "labels.json"),
-    // Path from __dirname (current file location)
-    path.resolve(__dirname, "..", "data", "labels.json"),
-    // Absolute path fallback for Vercel
-    "/vercel/path0/data/labels.json",
-  ];
-
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      return p;
-    }
-  }
-
-  return null;
-}
-
-// Helper function to find embeddings file using multiple path strategies
-function findEmbeddingsFile() {
-  const possiblePaths = [
-    // Standard path from project root
-    path.resolve(projectRoot, "src", "classifier_embeddings.json"),
-    // Path relative to current working directory (for Vercel)
-    path.resolve(process.cwd(), "src", "classifier_embeddings.json"),
-    // Path from __dirname (current file location)
-    path.resolve(__dirname, "classifier_embeddings.json"),
-    // Absolute path fallback for Vercel
-    "/vercel/path0/src/classifier_embeddings.json",
-  ];
-
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      return p;
-    }
-  }
-
-  // If not found, return default path for writing
-  return path.resolve(projectRoot, "src", "classifier_embeddings.json");
 }
 
 // Recompute embeddings for all labels
 export async function recomputeEmbeddings() {
   try {
-    const labelsPath = findLabelsFile();
-
-    if (!labelsPath) {
-      throw new Error(
-        "Labels file not found. Please ensure data/labels.json exists in the project."
-      );
-    }
-
-    const labels = JSON.parse(fs.readFileSync(labelsPath, "utf-8"));
+    // Read labels from storage (file system or Blob Storage)
+    const labels = await readLabels();
     const embeddings = {};
 
     console.log("Starting embedding recomputation...");
-    console.log(`Labels file: ${labelsPath}`);
+    console.log(`Processing ${labels.length} labels`);
 
     if (!OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY not set. Please set it in your .env file.");
+      throw new Error(
+        "OPENAI_API_KEY not set. Please set it in your .env file."
+      );
     }
 
     for (const label of labels) {
       embeddings[label.name] = [];
       console.log(
-        `Processing label: ${label.name} (${label.examples?.length || 0} examples)`
+        `Processing label: ${label.name} (${
+          label.examples?.length || 0
+        } examples)`
       );
 
       if (!label.examples || label.examples.length === 0) {
@@ -123,25 +78,39 @@ export async function recomputeEmbeddings() {
       }
     }
 
-    // Check if we're in a read-only environment
-    const isReadOnly =
-      process.env.VERCEL === "1" ||
-      process.env.VERCEL_ENV ||
-      process.env.READ_ONLY_FS === "1";
+    // Write embeddings to storage (file system or Blob Storage)
+    const writeResult = await writeEmbeddings(embeddings);
 
-    if (isReadOnly) {
-      console.warn(
-        "⚠️  Running in read-only environment (Vercel). " +
-        "Embeddings cannot be saved to disk. " +
-        "They will be computed on-demand or you can precompute them during build."
+    if (writeResult.persisted) {
+      console.log("Embeddings recomputed and saved successfully!");
+      if (writeResult.url) {
+        console.log(`Embeddings saved to Blob Storage: ${writeResult.url}`);
+      }
+
+      // Reload embeddings in classifier
+      await initClassifier({ openaiApiKey: OPENAI_API_KEY });
+
+      const totalExamples = Object.values(embeddings).reduce(
+        (sum, arr) => sum + arr.length,
+        0
       );
-      // In read-only environment, we can't save embeddings
-      // The embeddings will be computed on-demand during classification
-      // Return success but note that embeddings weren't persisted
+
+      return {
+        success: true,
+        message: "Embeddings recomputed successfully",
+        labelsProcessed: labels.length,
+        totalExamples: totalExamples,
+        persisted: true,
+      };
+    } else {
+      console.warn(
+        "⚠️  Embeddings computed but not persisted. " +
+          "They will be computed on-demand during classification."
+      );
       return {
         success: true,
         message:
-          "Embeddings recomputed but not persisted (read-only environment). " +
+          "Embeddings recomputed but not persisted. " +
           "Embeddings will be computed on-demand during classification.",
         labelsProcessed: labels.length,
         totalExamples: Object.values(embeddings).reduce(
@@ -151,66 +120,9 @@ export async function recomputeEmbeddings() {
         persisted: false,
       };
     }
-
-    const embeddingsPath = findEmbeddingsFile();
-
-    // Ensure directory exists
-    const embeddingsDir = path.dirname(embeddingsPath);
-    if (!fs.existsSync(embeddingsDir)) {
-      fs.mkdirSync(embeddingsDir, { recursive: true });
-    }
-
-    try {
-      fs.writeFileSync(
-        embeddingsPath,
-        JSON.stringify(embeddings, null, 2),
-        "utf-8"
-      );
-
-      console.log("Embeddings recomputed successfully!");
-      console.log(`Embeddings saved to: ${embeddingsPath}`);
-    } catch (err) {
-      // Check if it's a read-only filesystem error
-      if (err.code === "EROFS") {
-        console.warn(
-          "⚠️  File system is read-only. Embeddings cannot be saved. " +
-          "They will be computed on-demand during classification."
-        );
-        return {
-          success: true,
-          message:
-            "Embeddings recomputed but not persisted (read-only filesystem). " +
-            "Embeddings will be computed on-demand during classification.",
-          labelsProcessed: labels.length,
-          totalExamples: Object.values(embeddings).reduce(
-            (sum, arr) => sum + arr.length,
-            0
-          ),
-          persisted: false,
-        };
-      }
-      throw err;
-    }
-
-    // Reload embeddings in classifier
-    initClassifier({ openaiApiKey: OPENAI_API_KEY });
-
-    const totalExamples = Object.values(embeddings).reduce(
-      (sum, arr) => sum + arr.length,
-      0
-    );
-
-    return {
-      success: true,
-      message: "Embeddings recomputed successfully",
-      labelsProcessed: labels.length,
-      totalExamples: totalExamples,
-      persisted: true,
-    };
   } catch (err) {
     console.error("Error recomputing embeddings:", err);
     console.error("Stack trace:", err.stack);
     throw new Error(`Failed to recompute embeddings: ${err.message}`);
   }
 }
-
