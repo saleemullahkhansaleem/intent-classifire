@@ -187,23 +187,30 @@ async function gptFallbackClassifier(text) {
   if (!client) return null;
 
   try {
-    // Dynamically load categories from database or use defaults
+    // Dynamically load categories from database
     let categoryList = [];
     try {
-      const { getCategoriesForPrompt } = await import("./config/categories.js");
-      const categories = await getCategoriesForPrompt();
+      const { initDatabase } = await import("./db/database.js");
+      const { getAllCategories } = await import("./db/queries/categories.js");
+
+      await initDatabase();
+      const categories = await getAllCategories();
+
+      if (!categories || categories.length === 0) {
+        throw new Error(
+          "No categories found in database. Please create categories first."
+        );
+      }
+
       categoryList = categories.map((cat) => `- ${cat.name}`);
     } catch (err) {
-      // Fallback to default categories
-      categoryList = [
-        "- low_effort",
-        "- reasoning",
-        "- code",
-        "- image_generation",
-        "- image_edit",
-        "- web_surfing",
-        "- ppt_generation",
-      ];
+      console.error(
+        "Failed to load categories from database for GPT fallback:",
+        err.message
+      );
+      throw new Error(
+        "Categories not available. Database must be initialized with categories."
+      );
     }
 
     const prompt = `
@@ -236,19 +243,24 @@ Request: """${text}"""
     // Validate against database categories
     let validCategories = [];
     try {
-      const { getValidCategoryNames } = await import("./config/categories.js");
-      validCategories = await getValidCategoryNames();
+      const { initDatabase } = await import("./db/database.js");
+      const { getAllCategories } = await import("./db/queries/categories.js");
+
+      await initDatabase();
+      const categories = await getAllCategories();
+
+      if (!categories || categories.length === 0) {
+        throw new Error("No categories found in database.");
+      }
+
+      validCategories = categories.map((cat) => cat.name);
     } catch (err) {
-      // Fallback to default categories
-      validCategories = [
-        "low_effort",
-        "reasoning",
-        "code",
-        "image_generation",
-        "image_edit",
-        "web_surfing",
-        "ppt_generation",
-      ];
+      console.error(
+        "Failed to load valid categories from database:",
+        err.message
+      );
+      // If we can't load categories, reject the GPT result as invalid
+      return null;
     }
 
     try {
@@ -273,8 +285,12 @@ Request: """${text}"""
 
 // Reload embeddings (useful after recomputation)
 export async function reloadEmbeddings() {
-  // Always try database first if POSTGRES_URL is available
-  const shouldUseDatabase = useDatabase || process.env.POSTGRES_URL;
+  // Always try database first if POSTGRES_URL or VERCEL is available
+  const shouldUseDatabase =
+    useDatabase ||
+    process.env.POSTGRES_URL ||
+    process.env.VERCEL === "1" ||
+    process.env.DATABASE_URL;
 
   if (shouldUseDatabase) {
     try {
@@ -286,6 +302,12 @@ export async function reloadEmbeddings() {
       const dbEmbeddings = await getAllEmbeddings();
       const categories = await getAllCategories();
 
+      console.log(
+        `[Reload] Found ${
+          Object.keys(dbEmbeddings).length
+        } categories with embeddings in database`
+      );
+
       if (Object.keys(dbEmbeddings).length > 0) {
         embeddings = dbEmbeddings;
         categoryThresholds = {};
@@ -294,18 +316,34 @@ export async function reloadEmbeddings() {
         }
         useDatabase = true;
         console.log(
-          `Embeddings reloaded from database (${
+          `✅ Embeddings reloaded from database (${
             Object.keys(embeddings).length
-          } categories)`
+          } categories, ${Object.values(embeddings).reduce(
+            (sum, exs) => sum + exs.length,
+            0
+          )} total examples)`
         );
         return;
+      } else {
+        console.warn(
+          "[Reload] Database has no embeddings. Make sure embeddings are recomputed and stored."
+        );
       }
     } catch (err) {
-      console.warn("Failed to reload embeddings from database:", err.message);
+      console.error(
+        "[Reload] Failed to reload embeddings from database:",
+        err.message
+      );
+      console.error("[Reload] Error details:", {
+        hasPostgresUrl: !!process.env.POSTGRES_URL,
+        isVercel: process.env.VERCEL === "1",
+        error: err.message,
+      });
     }
   }
 
   // Fallback to JSON file
+  console.log("[Reload] Falling back to JSON file...");
   await loadEmbeddingsFromFile();
 }
 
@@ -316,17 +354,33 @@ export async function classifyText(
   { useGptFallback = true } = {}
 ) {
   try {
-    // Ensure embeddings are loaded (reload from database if needed)
-    if (Object.keys(embeddings).length === 0 || useDatabase) {
+    // Always try to reload embeddings from database (especially on Vercel/serverless)
+    // This ensures fresh data on each request in serverless environments
+    const shouldReload =
+      Object.keys(embeddings).length === 0 ||
+      useDatabase ||
+      process.env.VERCEL === "1" ||
+      process.env.POSTGRES_URL;
+
+    if (shouldReload) {
       try {
+        console.log("[Classify] Reloading embeddings from database...");
         await reloadEmbeddings();
+        console.log(
+          `[Classify] Embeddings reloaded: ${
+            Object.keys(embeddings).length
+          } categories`
+        );
       } catch (err) {
-        console.warn("Failed to reload embeddings:", err.message);
+        console.error("[Classify] Failed to reload embeddings:", err.message);
+        console.error("[Classify] Error stack:", err.stack);
+        // Continue anyway, might have cached embeddings
       }
     }
 
     // Check if we have local embeddings loaded
     if (Object.keys(embeddings).length === 0) {
+      console.warn("[Classify] No embeddings loaded, using GPT fallback");
       // No local embeddings, must use API fallback
       return await classifyWithFallback(text, apiKey, useGptFallback);
     }
@@ -453,7 +507,22 @@ async function classifyWithFallback(
     }
   }
 
-  // Final fallback: no label found, use low_effort
+  // Final fallback: no label found, try to get first category from database
+  let fallbackLabel = "unknown";
+  try {
+    const { initDatabase } = await import("./db/database.js");
+    const { getAllCategories } = await import("./db/queries/categories.js");
+
+    await initDatabase();
+    const categories = await getAllCategories();
+
+    if (categories && categories.length > 0) {
+      fallbackLabel = categories[0].name; // Use first category as fallback
+    }
+  } catch (err) {
+    console.error("Failed to load categories for fallback:", err.message);
+  }
+
   const embeddingCost = (embeddingTokens / 1000) * 0.00013;
   consumption.tokens.input = embeddingTokens;
   consumption.tokens.total = embeddingTokens;
@@ -462,7 +531,7 @@ async function classifyWithFallback(
 
   return {
     prompt: text,
-    label: "low_effort",
+    label: fallbackLabel,
     score: 0,
     source: "fallback",
     consumption,

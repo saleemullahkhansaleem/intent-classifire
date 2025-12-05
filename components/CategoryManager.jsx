@@ -15,43 +15,107 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 
+// Skeleton component for loading category details
+function CategoryCardSkeleton() {
+  return (
+    <div className="bg-card rounded-lg shadow-md p-6 animate-pulse">
+      {/* Header skeleton */}
+      <div className="mb-6">
+        <div className="space-y-3">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              {/* Category name skeleton */}
+              <div className="h-8 w-48 bg-muted rounded mb-2" />
+              {/* Description skeleton */}
+              <div className="h-4 w-96 bg-muted rounded mb-1" />
+              <div className="h-4 w-64 bg-muted rounded mb-2" />
+              {/* Meta info skeleton */}
+              <div className="flex items-center gap-4 mt-2">
+                <div className="h-4 w-24 bg-muted rounded" />
+                <div className="h-4 w-32 bg-muted rounded" />
+              </div>
+            </div>
+            {/* Action buttons skeleton */}
+            <div className="flex gap-2">
+              <div className="h-9 w-16 bg-muted rounded" />
+              <div className="h-9 w-20 bg-muted rounded" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Examples section skeleton */}
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <div className="h-6 w-24 bg-muted rounded" />
+          <div className="flex gap-2">
+            <div className="h-9 w-28 bg-muted rounded" />
+            <div className="h-9 w-32 bg-muted rounded" />
+            <div className="h-9 w-28 bg-muted rounded" />
+          </div>
+        </div>
+
+        {/* Example items skeleton - show 5 placeholder examples */}
+        <div className="space-y-2 mt-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className="flex items-center gap-2 p-3 bg-muted/50 rounded-md border border-border"
+            >
+              <div
+                className="h-5 bg-muted rounded flex-1"
+                style={{ maxWidth: `${60 + i * 8}%` }}
+              />
+              <div className="flex gap-2 ml-4">
+                <div className="h-7 w-14 bg-muted rounded" />
+                <div className="h-7 w-16 bg-muted rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CategoryManager() {
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start false - lazy load
+  const [loadingCategoryDetails, setLoadingCategoryDetails] = useState(false); // Loading state for category details
   const [recomputing, setRecomputing] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [recomputeConsumption, setRecomputeConsumption] = useState(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [deletingCategoryId, setDeletingCategoryId] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false); // Track if we've loaded once
   const { toast } = useToast();
 
+  // Lazy load: Only fetch when component first mounts (when Manage tab is clicked)
   useEffect(() => {
-    fetchCategories();
-  }, []);
+    if (!hasLoaded) {
+      fetchCategories();
+      setHasLoaded(true);
+    }
+  }, [hasLoaded]);
 
   const fetchCategories = async () => {
+    setLoading(true);
     try {
       const response = await fetch("/api/categories");
       if (!response.ok) throw new Error("Failed to fetch categories");
       const data = await response.json();
       setCategories(data);
-      // Keep the same selected category if it still exists, otherwise select first
-      if (
-        !selectedCategoryId ||
-        !data.find((c) => c.id === selectedCategoryId)
-      ) {
-        const firstId = data[0]?.id || null;
-        setSelectedCategoryId(firstId);
-        if (firstId) {
-          fetchCategoryDetails(firstId);
-        } else {
-          setSelectedCategory(null);
-        }
+      // Don't auto-select first category - wait for user to click
+      // Only restore previously selected category if it still exists
+      if (selectedCategoryId && data.find((c) => c.id === selectedCategoryId)) {
+        // Category still exists, but don't auto-load details
+        setSelectedCategory(null);
       } else {
-        // Refresh selected category details
-        fetchCategoryDetails(selectedCategoryId);
+        // Reset selection
+        setSelectedCategoryId(null);
+        setSelectedCategory(null);
       }
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -66,6 +130,7 @@ export default function CategoryManager() {
   };
 
   const fetchCategoryDetails = async (categoryId) => {
+    setLoadingCategoryDetails(true);
     try {
       const response = await fetch(`/api/categories/${categoryId}`);
       if (!response.ok) throw new Error("Failed to fetch category details");
@@ -78,6 +143,9 @@ export default function CategoryManager() {
         description: "Failed to fetch category details",
         variant: "destructive",
       });
+      setSelectedCategory(null);
+    } finally {
+      setLoadingCategoryDetails(false);
     }
   };
 
@@ -90,6 +158,7 @@ export default function CategoryManager() {
 
   const handleCategorySelect = async (categoryId) => {
     setSelectedCategoryId(categoryId);
+    setSelectedCategory(null); // Clear previous category immediately
     if (categoryId) {
       await fetchCategoryDetails(categoryId);
     } else {
@@ -203,10 +272,28 @@ export default function CategoryManager() {
     }
   };
 
+  // Skeleton for loading categories list
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-12">
-        <div className="text-muted-foreground">Loading categories...</div>
+      <div className="max-w-6xl mx-auto animate-pulse">
+        <div className="flex justify-between items-center mb-6">
+          <div className="h-8 w-64 bg-muted rounded" />
+          <div className="flex gap-3">
+            <div className="h-10 w-32 bg-muted rounded" />
+            <div className="h-10 w-40 bg-muted rounded" />
+          </div>
+        </div>
+
+        {/* Category tabs skeleton */}
+        <div className="flex flex-wrap gap-2 mb-6 border-b border-border pb-4">
+          {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <div
+              key={i}
+              className="h-10 bg-muted rounded-md"
+              style={{ width: `${80 + i * 15}px` }}
+            />
+          ))}
+        </div>
       </div>
     );
   }
@@ -271,7 +358,9 @@ export default function CategoryManager() {
       </div>
 
       {/* Selected Category Card */}
-      {selectedCategory && (
+      {loadingCategoryDetails ? (
+        <CategoryCardSkeleton />
+      ) : selectedCategory ? (
         <CategoryCard
           category={selectedCategory}
           onUpdate={handleCategoryUpdate}
@@ -280,7 +369,7 @@ export default function CategoryManager() {
             setDeleteDialogOpen(true);
           }}
         />
-      )}
+      ) : null}
 
       {/* Create Category Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
