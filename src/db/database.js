@@ -1,9 +1,8 @@
 // src/db/database.js
-// Database connection utility supporting both SQLite (local) and Vercel Postgres (production)
+// Database connection utility supporting both SQLite (local) and PostgreSQL (production)
 
 import "dotenv/config";
 import Database from "better-sqlite3";
-import { sql } from "@vercel/postgres";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -11,22 +10,92 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const isProduction = process.env.VERCEL === "1" || process.env.POSTGRES_URL;
+const isProduction = process.env.VERCEL === "1";
+const usePostgres = process.env.VERCEL === "1" || process.env.POSTGRES_URL;
 const DB_PATH = path.resolve(__dirname, "../../data/database.db");
 
 let sqliteDb = null;
+let postgresPool = null;
 
 /**
- * Get database connection - SQLite for local, Vercel Postgres for production
+ * Initialize PostgreSQL client (supports both Vercel Postgres and standard PostgreSQL like Neon)
+ */
+async function getPostgresClient() {
+  if (postgresPool) {
+    return postgresPool;
+  }
+
+  // Check if we have POSTGRES_URL (Neon, Supabase, or other standard PostgreSQL)
+  if (process.env.POSTGRES_URL) {
+    const pg = await import("pg");
+    const { Pool } = pg.default || pg;
+
+    const pool = new Pool({
+      connectionString: process.env.POSTGRES_URL,
+      ssl: process.env.POSTGRES_URL.includes("sslmode=require")
+        ? { rejectUnauthorized: false }
+        : undefined,
+      max: 10, // Maximum number of clients in the pool
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+
+    // Handle pool errors
+    pool.on("error", (err) => {
+      console.error("Unexpected error on idle PostgreSQL client", err);
+    });
+
+    postgresPool = {
+      query: async (queryText, params = []) => {
+        const result = await pool.query(queryText, params);
+        return {
+          rows: result.rows,
+          rowCount: result.rowCount,
+        };
+      },
+      end: async () => {
+        await pool.end();
+        postgresPool = null;
+      },
+    };
+    return postgresPool;
+  }
+
+  // Fallback to Vercel Postgres (if @vercel/postgres is available and no POSTGRES_URL)
+  try {
+    const { sql } = await import("@vercel/postgres");
+    postgresPool = {
+      query: async (queryText, params = []) => {
+        return await sql.query(queryText, params);
+      },
+    };
+    return postgresPool;
+  } catch (error) {
+    // @vercel/postgres not available
+    throw new Error(
+      "No PostgreSQL connection available. Set POSTGRES_URL environment variable."
+    );
+  }
+}
+
+/**
+ * Get database connection - SQLite for local, PostgreSQL for production
  */
 export function getDb() {
-  if (isProduction) {
-    // Use Vercel Postgres in production
+  if (usePostgres) {
+    // Use PostgreSQL (either in production or locally if POSTGRES_URL is set)
     return {
       query: async (queryText, params = []) => {
         try {
-          const result = await sql.query(queryText, params);
-          return result;
+          const client = await getPostgresClient();
+          const result = await client.query(queryText, params);
+          // Ensure result has rows property
+          return {
+            rows: result.rows || result,
+            rowCount:
+              result.rowCount ||
+              (Array.isArray(result.rows) ? result.rows.length : 0),
+          };
         } catch (error) {
           console.error("Database query error:", error);
           throw error;
@@ -34,7 +103,8 @@ export function getDb() {
       },
       execute: async (queryText, params = []) => {
         try {
-          await sql.query(queryText, params);
+          const client = await getPostgresClient();
+          await client.query(queryText, params);
         } catch (error) {
           console.error("Database execute error:", error);
           throw error;
@@ -43,6 +113,7 @@ export function getDb() {
     };
   } else {
     // Use SQLite for local development
+
     if (!sqliteDb) {
       // Ensure data directory exists
       const dbDir = path.dirname(DB_PATH);
@@ -116,7 +187,7 @@ export async function initDatabase() {
   const db = getDb();
 
   // Create tables based on database type
-  const isPostgres = isProduction;
+  const isPostgres = usePostgres;
 
   // Categories table
   await db.execute(`
@@ -202,11 +273,15 @@ export async function initDatabase() {
 }
 
 /**
- * Close database connection (for SQLite)
+ * Close database connection (for SQLite and PostgreSQL)
  */
-export function closeDatabase() {
+export async function closeDatabase() {
   if (sqliteDb) {
     sqliteDb.close();
     sqliteDb = null;
+  }
+  if (postgresPool && postgresPool.end) {
+    await postgresPool.end();
+    postgresPool = null;
   }
 }
