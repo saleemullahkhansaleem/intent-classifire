@@ -38,8 +38,7 @@ export default function ResultDisplay({ result }) {
   };
 
   const formatCost = (cost) => {
-    if (!cost) return "";
-    if (cost < 0.0001) return `$${(cost * 1_000_000).toFixed(2)} (µ$)`;
+    if (!cost || cost === 0) return "$0.000000";
     if (cost < 0.01) return `$${cost.toFixed(6)}`;
     return `$${cost.toFixed(4)}`;
   };

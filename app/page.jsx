@@ -5,7 +5,8 @@ import Image from "next/image";
 import ClassificationForm from "../components/ClassificationForm";
 import ResultDisplay from "../components/ResultDisplay";
 import ConsumptionMetrics from "../components/ConsumptionMetrics";
-import ExampleManager from "../components/ExampleManager";
+import CategoryManager from "../components/CategoryManager";
+import BulkTest from "../components/BulkTest";
 import { ThemeToggle } from "../components/ui/theme-toggle";
 
 // Skeleton component for loading state
@@ -135,14 +136,24 @@ export default function Home() {
                   Classification
                 </button>
                 <button
-                  onClick={() => setActiveTab("examples")}
+                  onClick={() => setActiveTab("bulk")}
                   className={`px-5 py-2 text-sm font-medium transition-colors ${
-                    activeTab === "examples"
+                    activeTab === "bulk"
                       ? "bg-background text-primary shadow-sm"
                       : "text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  Manage Examples
+                  Bulk Test
+                </button>
+                <button
+                  onClick={() => setActiveTab("categories")}
+                  className={`px-5 py-2 text-sm font-medium transition-colors ${
+                    activeTab === "categories"
+                      ? "bg-background text-primary shadow-sm"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Manage
                 </button>
               </nav>
             </div>
@@ -185,8 +196,10 @@ export default function Home() {
               </div>
             )}
           </div>
+        ) : activeTab === "bulk" ? (
+          <BulkTest />
         ) : (
-          <ExampleManager />
+          <CategoryManager />
         )}
       </div>
     </div>

@@ -1,134 +1,96 @@
-# Palvoro Intent Classifire
+# Intent Classifier
 
-A full-stack application for classifying user intents with example management and automatic embedding recomputation.
+A full-stack application for classifying user intents into categories using AI embeddings with GPT fallback.
 
 ## Features
 
-- **Intent Classification**: Classify user prompts into categories (code, low_effort, reasoning, image_generation, image_edit, web_surfing, ppt_generation)
-- **Example Management**: Add, edit, and delete training examples through a web interface
-- **Automatic Embedding Recomputation**: Embeddings are automatically recomputed when examples are modified
-- **Consumption Tracking**: Track token usage and API costs for each classification
-- **Modern UI**: Built with Next.js and Tailwind CSS
+- **Intent Classification**: Classify prompts into categories (code, reasoning, image_generation, etc.)
+- **Category Management**: Full CRUD for categories with per-category thresholds
+- **Example Management**: Add, edit, delete training examples with bulk operations
+- **Embedding Recomputation**: Regenerate embeddings for all examples
+- **Consumption Tracking**: Monitor token usage and API costs
+- **Bulk Testing**: Test multiple prompts at once
 
 ## Tech Stack
 
 - **Frontend**: Next.js 14, React, Tailwind CSS
-- **Backend**: Express.js, Node.js
-- **AI**: OpenAI API (embeddings and GPT-4o-mini)
+- **Backend**: Next.js API Routes
+- **Database**: SQLite (local) / Vercel Postgres (production)
+- **AI**: OpenAI API (embeddings + GPT models)
 
-## Setup
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 18+
-- npm or yarn
 - OpenAI API key
 
 ### Installation
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+# Install dependencies
+npm install
 
-3. Create a `.env` file in the root directory:
-   ```
-   OPENAI_API_KEY=your_openai_api_key_here
-   PORT=3001
-   ```
+# Create .env file
+echo "OPENAI_API_KEY=your-api-key-here" > .env
 
-4. Start the development server:
-   ```bash
-   npm run dev
-   ```
+# Initialize database and migrate data
+node src/db/migrate.js --migrate-json
 
-   This will start:
-   - Next.js frontend on http://localhost:3000
-   - Express backend on http://localhost:3001
+# Start development server
+npm run dev
+```
 
-### Development
+Visit http://localhost:3000
 
-- **Frontend**: `npm run dev` - Starts Next.js dev server
-- **Backend only**: `npm run server` - Starts Express server only
+## Environment Variables
+
+See [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) for complete environment variable documentation.
+
+**Required:**
+
+- `OPENAI_API_KEY` - Your OpenAI API key
+
+**Optional:**
+
+- `EMBEDDING_MODEL` - Embedding model (default: `text-embedding-3-large`)
+- `FALLBACK_MODEL` - GPT model for fallback (default: `gpt-4o-mini`)
+
+## Deployment
+
+See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for Vercel deployment instructions.
+
+## Documentation
+
+- [Architecture](./docs/ARCHITECTURE.md) - System architecture and design
+- [Environment Variables](./docs/ENVIRONMENT.md) - Environment configuration
+- [Deployment](./docs/DEPLOYMENT.md) - Vercel deployment guide
 
 ## Project Structure
 
 ```
 intent-classifire/
 ├── app/                    # Next.js app directory
-│   ├── api/                # Next.js API routes
-│   ├── layout.jsx          # Root layout
-│   ├── page.jsx            # Main page
-│   └── globals.css         # Global styles
+│   ├── api/                # API routes
+│   └── page.jsx            # Main page
 ├── components/             # React components
-│   ├── ClassificationForm.jsx
-│   ├── ResultDisplay.jsx
-│   ├── ConsumptionMetrics.jsx
-│   ├── ExampleManager.jsx
-│   ├── LabelCard.jsx
-│   ├── ExampleList.jsx
-│   ├── ExampleEditor.jsx
-│   └── RecomputeStatus.jsx
-├── src/                    # Backend source
-│   ├── server.js          # Express server
+├── src/
 │   ├── classifier.js      # Classification logic
-│   ├── labelsManager.js    # Label/example management
-│   ├── embeddingService.js # Embedding recomputation
-│   └── precompute_embeddings.js
-├── data/
-│   └── labels.json         # Training examples
-└── vercel.json            # Vercel configuration
+│   ├── embeddingService.js # Embedding management
+│   └── db/                 # Database layer
+│       ├── database.js     # DB connection
+│       ├── queries/        # Query utilities
+│       └── migrations/     # Migration scripts
+├── data/                   # Data files (SQLite DB, labels.json)
+└── docs/                   # Documentation
 ```
-
-## API Endpoints
-
-### Classification
-- `POST /classify` - Classify a prompt
-  - Body: `{ "prompt": "text" }` or `{ "prompts": ["text1", "text2"] }`
-  - Returns: `{ prompt, label, score, source, consumption }`
-
-### Labels Management
-- `GET /api/labels` - Get all labels
-- `GET /api/labels/:labelName` - Get specific label
-- `POST /api/labels/:labelName/examples` - Add example
-- `PUT /api/labels/:labelName/examples/:index` - Update example
-- `DELETE /api/labels/:labelName/examples/:index` - Delete example
-- `POST /api/recompute-embeddings` - Manually trigger recomputation
-
-## Deployment to Vercel
-
-1. Push your code to GitHub
-2. Import the project in Vercel
-3. Set environment variables in Vercel dashboard:
-   - `OPENAI_API_KEY`: Your OpenAI API key
-   - `NODE_ENV`: `production`
-4. Deploy
-
-### Important Notes for Vercel
-
-- File system writes are ephemeral in serverless functions. For production, consider using:
-  - Vercel Blob Storage for `labels.json`
-  - Database for persistent storage
-- Embedding recomputation can be time-consuming. Consider:
-  - Using background jobs
-  - Implementing async processing with status polling
-  - Using Vercel's longer timeout limits for Pro plans
 
 ## Usage
 
-1. **Classification Tab**: Enter a prompt and see the classification result with consumption metrics
-2. **Manage Examples Tab**:
-   - View examples for each label category
-   - Add new examples
-   - Edit existing examples
-   - Delete examples
-   - Manually trigger embedding recomputation
+1. **Classification**: Enter prompts to classify them
+2. **Bulk Test**: Paste multiple prompts (one per line) for bulk classification
+3. **Manage**: Create categories, add examples, set thresholds, recompute embeddings
 
-## Token Costs
+## License
 
-- Embeddings (text-embedding-3-large): ~$0.00013 per 1K tokens
-- GPT-4o-mini: ~$0.15/$0.60 per 1M input/output tokens
-
-Costs are calculated and displayed for each classification request.
-
+MIT
