@@ -5,6 +5,54 @@ import ResultDisplay from "./ResultDisplay";
 import ConsumptionMetrics from "./ConsumptionMetrics";
 import { useToast } from "./ui/use-toast";
 
+// Skeleton component for bulk test results - matches ResultDisplay layout
+function BulkTestSkeleton({ count }) {
+  return (
+    <div className="bg-card text-foreground rounded-lg shadow-md p-6">
+      <div className="flex items-baseline justify-between mb-4">
+        <div className="h-7 w-48 bg-muted rounded animate-pulse" />
+        <div className="h-4 w-20 bg-muted rounded animate-pulse" />
+      </div>
+      <div className="space-y-4">
+        {Array.from({ length: Math.min(count || 5, 10) }).map((_, index) => (
+          <div
+            key={index}
+            className="border border-border rounded-xl p-4 space-y-3 bg-background animate-pulse"
+          >
+            {/* Header with label and score */}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-6 w-24 bg-muted rounded-full" />
+                  <div className="h-5 w-16 bg-muted rounded-full" />
+                </div>
+                <div className="h-3 w-16 bg-muted rounded" />
+              </div>
+              <div className="text-right">
+                <div className="h-3 w-12 bg-muted rounded mb-1" />
+                <div className="h-5 w-16 bg-muted rounded mb-1" />
+                <div className="w-28 h-1.5 bg-muted rounded-full" />
+              </div>
+            </div>
+            {/* Prompt text skeleton */}
+            <div>
+              <div className="h-10 w-full bg-muted rounded-md" />
+            </div>
+            {/* Consumption skeleton */}
+            <div className="pt-2 border-t border-border/50">
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <div className="h-3 w-20 bg-muted rounded" />
+                <div className="h-3 w-16 bg-muted rounded" />
+                <div className="h-3 w-14 bg-muted rounded" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function BulkTest() {
   const [promptText, setPromptText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -142,16 +190,7 @@ export default function BulkTest() {
         </form>
       </div>
 
-      {loading && (
-        <div className="bg-card text-foreground rounded-lg shadow-md p-6">
-          <div className="flex items-center gap-3">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-            <p className="text-muted-foreground">
-              Classifying {promptCount} prompt{promptCount !== 1 ? "s" : ""}...
-            </p>
-          </div>
-        </div>
-      )}
+      {loading && <BulkTestSkeleton count={promptCount} />}
 
       {result && !loading && (
         <div className="space-y-6">
