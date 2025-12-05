@@ -11,7 +11,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const isProduction = process.env.VERCEL === "1";
-const usePostgres = process.env.VERCEL === "1" || process.env.POSTGRES_URL;
+const usePostgres =
+  process.env.VERCEL === "1" ||
+  process.env.POSTGRES_URL ||
+  process.env.DATABASE_URL;
 const DB_PATH = path.resolve(__dirname, "../../data/database.db");
 
 let sqliteDb = null;
