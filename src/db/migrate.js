@@ -1,7 +1,19 @@
 // src/db/migrate.js
 // Database migration script
 
-import "dotenv/config";
+import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import { resolve, dirname } from "path";
+
+// Load environment variables from .env.local first, then .env
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const projectRoot = resolve(__dirname, "../..");
+
+// Load .env.local first (Next.js convention), then .env as fallback
+dotenv.config({ path: resolve(projectRoot, ".env.local") });
+dotenv.config({ path: resolve(projectRoot, ".env") });
+
 import { initDatabase } from "./database.js";
 import { migrateFromJson } from "./migrations/migrateFromJson.js";
 
