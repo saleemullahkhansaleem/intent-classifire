@@ -59,12 +59,20 @@ export async function initClassifier({ openaiApiKey } = {}) {
       }
       useDatabase = true;
       console.log(
-        `Embeddings loaded from database (${
+        `✅ Embeddings loaded from database (${
           Object.keys(embeddings).length
         } categories)`
       );
       console.log(`Category thresholds loaded:`, categoryThresholds);
+
+      // Log embedding counts per category for debugging
+      for (const [catName, exs] of Object.entries(embeddings)) {
+        console.log(`  - ${catName}: ${exs.length} examples with embeddings`);
+      }
     } else {
+      console.warn(
+        "No embeddings found in database, falling back to JSON file"
+      );
       // Fallback to JSON file
       await loadEmbeddingsFromFile();
     }
@@ -265,25 +273,40 @@ Request: """${text}"""
 
 // Reload embeddings (useful after recomputation)
 export async function reloadEmbeddings() {
-  if (useDatabase) {
+  // Always try database first if POSTGRES_URL is available
+  const shouldUseDatabase = useDatabase || process.env.POSTGRES_URL;
+
+  if (shouldUseDatabase) {
     try {
+      const { initDatabase } = await import("./db/database.js");
       const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
       const { getAllCategories } = await import("./db/queries/categories.js");
 
-      embeddings = await getAllEmbeddings();
+      await initDatabase();
+      const dbEmbeddings = await getAllEmbeddings();
       const categories = await getAllCategories();
-      categoryThresholds = {};
-      for (const category of categories) {
-        categoryThresholds[category.name] = category.threshold || 0.4;
+
+      if (Object.keys(dbEmbeddings).length > 0) {
+        embeddings = dbEmbeddings;
+        categoryThresholds = {};
+        for (const category of categories) {
+          categoryThresholds[category.name] = category.threshold || 0.4;
+        }
+        useDatabase = true;
+        console.log(
+          `Embeddings reloaded from database (${
+            Object.keys(embeddings).length
+          } categories)`
+        );
+        return;
       }
-      console.log(`Embeddings reloaded from database`);
     } catch (err) {
       console.warn("Failed to reload embeddings from database:", err.message);
-      await loadEmbeddingsFromFile();
     }
-  } else {
-    await loadEmbeddingsFromFile();
   }
+
+  // Fallback to JSON file
+  await loadEmbeddingsFromFile();
 }
 
 // Classify text: check local embeddings first, only call GPT fallback if score < 0.4
@@ -293,6 +316,15 @@ export async function classifyText(
   { useGptFallback = true } = {}
 ) {
   try {
+    // Ensure embeddings are loaded (reload from database if needed)
+    if (Object.keys(embeddings).length === 0 || useDatabase) {
+      try {
+        await reloadEmbeddings();
+      } catch (err) {
+        console.warn("Failed to reload embeddings:", err.message);
+      }
+    }
+
     // Check if we have local embeddings loaded
     if (Object.keys(embeddings).length === 0) {
       // No local embeddings, must use API fallback
@@ -310,8 +342,26 @@ export async function classifyText(
     // Get threshold for the matched category
     const threshold = best.label ? getCategoryThreshold(best.label) : 0.4;
 
+    // Debug logging
+    console.log(`[Classify] Text: "${text.substring(0, 50)}..."`);
+    console.log(
+      `[Classify] Best match: ${
+        best.label || "none"
+      } (score: ${best.score.toFixed(4)}, threshold: ${threshold})`
+    );
+    console.log(
+      `[Classify] Embeddings loaded: ${
+        Object.keys(embeddings).length
+      } categories`
+    );
+
     // If score >= threshold, return local result with no consumption shown
     if (best.label && best.score >= threshold) {
+      console.log(
+        `[Classify] ✅ Using LOCAL classification (score ${best.score.toFixed(
+          4
+        )} >= threshold ${threshold})`
+      );
       return {
         prompt: text,
         label: best.label,
@@ -321,7 +371,13 @@ export async function classifyText(
       };
     }
 
-    // Score < 0.4, use GPT fallback with consumption tracking
+    console.log(
+      `[Classify] ⚠️ Score ${best.score.toFixed(
+        4
+      )} < threshold ${threshold}, using GPT fallback`
+    );
+
+    // Score < threshold, use GPT fallback with consumption tracking
     return await classifyWithFallback(text, apiKey, useGptFallback, {
       inputEmbedding,
       embeddingTokens,
