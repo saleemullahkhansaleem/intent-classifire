@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import LabelCard from "./LabelCard";
 import RecomputeStatus from "./RecomputeStatus";
+import ConsumptionMetrics from "./ConsumptionMetrics";
 import { useToast } from "./ui/use-toast";
 
 export default function ExampleManager() {
@@ -10,6 +11,7 @@ export default function ExampleManager() {
   const [loading, setLoading] = useState(true);
   const [recomputing, setRecomputing] = useState(false);
   const [selectedLabel, setSelectedLabel] = useState(null);
+  const [recomputeConsumption, setRecomputeConsumption] = useState(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -55,6 +57,12 @@ export default function ExampleManager() {
         );
       }
       const result = await response.json();
+
+      // Store consumption data if available
+      if (result.consumption) {
+        setRecomputeConsumption(result.consumption);
+      }
+
       toast({
         title: "Success",
         description: `Embeddings recomputed successfully! Processed ${result.labelsProcessed} labels with ${result.totalExamples} examples.`,
@@ -96,6 +104,13 @@ export default function ExampleManager() {
       </div>
 
       {recomputing && <RecomputeStatus />}
+
+      {/* Show consumption metrics after recomputation */}
+      {!recomputing && recomputeConsumption && (
+        <div className="mb-6">
+          <ConsumptionMetrics consumption={recomputeConsumption} />
+        </div>
+      )}
 
       {/* Label Tabs */}
       <div className="flex flex-wrap gap-2 mb-6 border-b border-border pb-4">

@@ -1,7 +1,22 @@
-import 'dotenv/config';
+import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import { getEmbedding } from "./embed.js";
+import OpenAI from "openai";
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.Openai;
+
+async function getEmbedding(text) {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY not set");
+  }
+
+  const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+  const response = await client.embeddings.create({
+    model: "text-embedding-3-large",
+    input: text,
+  });
+  return response.data[0].embedding;
+}
 
 const labelsPath = path.resolve("./data/labels.json");
 const labels = JSON.parse(fs.readFileSync(labelsPath, "utf-8"));

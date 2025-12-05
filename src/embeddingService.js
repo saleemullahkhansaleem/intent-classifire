@@ -1,5 +1,5 @@
 // src/embeddingService.js
-import 'dotenv/config';
+import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -14,7 +14,7 @@ const projectRoot = path.resolve(__dirname, "..");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OpenAI;
 
-// Get embedding using OpenAI API
+// Get embedding using OpenAI API (returns embedding and usage)
 async function getEmbedding(text) {
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY not set");
@@ -28,9 +28,15 @@ async function getEmbedding(text) {
       input: text,
     });
 
-    return response.data[0].embedding;
+    return {
+      embedding: response.data[0].embedding,
+      usage: response.usage || { total_tokens: 0 },
+    };
   } catch (err) {
-    console.error(`OpenAI API error for text "${text.substring(0, 50)}...":`, err.message);
+    console.error(
+      `OpenAI API error for text "${text.substring(0, 50)}...":`,
+      err.message
+    );
     throw err;
   }
 }
@@ -94,17 +100,25 @@ export async function recomputeEmbeddings() {
     const labels = JSON.parse(fs.readFileSync(labelsPath, "utf-8"));
     const embeddings = {};
 
+    // Consumption tracking
+    let totalTokens = 0;
+    let totalInputTokens = 0;
+
     console.log("Starting embedding recomputation...");
     console.log(`Labels file: ${labelsPath}`);
 
     if (!OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY not set. Please set it in your .env file.");
+      throw new Error(
+        "OPENAI_API_KEY not set. Please set it in your .env file."
+      );
     }
 
     for (const label of labels) {
       embeddings[label.name] = [];
       console.log(
-        `Processing label: ${label.name} (${label.examples?.length || 0} examples)`
+        `Processing label: ${label.name} (${
+          label.examples?.length || 0
+        } examples)`
       );
 
       if (!label.examples || label.examples.length === 0) {
@@ -114,8 +128,13 @@ export async function recomputeEmbeddings() {
 
       for (const example of label.examples) {
         try {
-          const vector = await getEmbedding(example);
-          embeddings[label.name].push({ example, vector });
+          const result = await getEmbedding(example);
+          embeddings[label.name].push({ example, vector: result.embedding });
+
+          // Track consumption
+          const tokens = result.usage.total_tokens || 0;
+          totalTokens += tokens;
+          totalInputTokens += tokens;
         } catch (err) {
           console.error(`Error embedding example "${example}":`, err.message);
           // Continue with other examples
@@ -132,11 +151,14 @@ export async function recomputeEmbeddings() {
     if (isReadOnly) {
       console.warn(
         "⚠️  Running in read-only environment (Vercel). " +
-        "Embeddings cannot be saved to disk. " +
-        "They will be computed on-demand or you can precompute them during build."
+          "Embeddings cannot be saved to disk. " +
+          "They will be computed on-demand or you can precompute them during build."
       );
       // In read-only environment, we can't save embeddings
       // The embeddings will be computed on-demand during classification
+      // Calculate consumption costs
+      const embeddingCost = (totalTokens / 1000) * 0.00013;
+
       // Return success but note that embeddings weren't persisted
       return {
         success: true,
@@ -149,6 +171,18 @@ export async function recomputeEmbeddings() {
           0
         ),
         persisted: false,
+        consumption: {
+          tokens: {
+            input: totalInputTokens,
+            output: 0,
+            total: totalTokens,
+          },
+          cost: {
+            embeddings: embeddingCost,
+            gpt: 0,
+            total: embeddingCost,
+          },
+        },
       };
     }
 
@@ -174,8 +208,11 @@ export async function recomputeEmbeddings() {
       if (err.code === "EROFS") {
         console.warn(
           "⚠️  File system is read-only. Embeddings cannot be saved. " +
-          "They will be computed on-demand during classification."
+            "They will be computed on-demand during classification."
         );
+        // Calculate consumption costs
+        const embeddingCost = (totalTokens / 1000) * 0.00013;
+
         return {
           success: true,
           message:
@@ -187,6 +224,18 @@ export async function recomputeEmbeddings() {
             0
           ),
           persisted: false,
+          consumption: {
+            tokens: {
+              input: totalInputTokens,
+              output: 0,
+              total: totalTokens,
+            },
+            cost: {
+              embeddings: embeddingCost,
+              gpt: 0,
+              total: embeddingCost,
+            },
+          },
         };
       }
       throw err;
@@ -200,12 +249,27 @@ export async function recomputeEmbeddings() {
       0
     );
 
+    // Calculate consumption costs
+    const embeddingCost = (totalTokens / 1000) * 0.00013;
+
     return {
       success: true,
       message: "Embeddings recomputed successfully",
       labelsProcessed: labels.length,
       totalExamples: totalExamples,
       persisted: true,
+      consumption: {
+        tokens: {
+          input: totalInputTokens,
+          output: 0,
+          total: totalTokens,
+        },
+        cost: {
+          embeddings: embeddingCost,
+          gpt: 0,
+          total: embeddingCost,
+        },
+      },
     };
   } catch (err) {
     console.error("Error recomputing embeddings:", err);
@@ -213,4 +277,3 @@ export async function recomputeEmbeddings() {
     throw new Error(`Failed to recompute embeddings: ${err.message}`);
   }
 }
-

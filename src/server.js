@@ -8,7 +8,6 @@ import {
   classifyText,
   reloadEmbeddings,
 } from "./classifier.js";
-import OpenAI from "openai";
 import {
   getAllLabels,
   getLabelByName,
@@ -28,26 +27,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OpenAI;
 
 // Initialize classifier (embeddings loaded + optional GPT fallback)
 initClassifier({ openaiApiKey: OPENAI_API_KEY });
-
-// Embedding function using OpenAI embeddings API
-// Returns embedding with usage info
-const getEmbedding = async (text) => {
-  if (!OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY not set");
-  }
-
-  const client = new OpenAI({ apiKey: OPENAI_API_KEY });
-
-  const response = await client.embeddings.create({
-    model: "text-embedding-3-large", // more accurate
-    input: text,
-  });
-
-  return {
-    embedding: response.data[0].embedding,
-    usage: response.usage || { total_tokens: 0 },
-  };
-};
 
 // Unified endpoint: supports single or multiple prompts
 // Input: { "prompt": "text" } OR { "prompts": ["text1", "text2"] }
@@ -74,28 +53,15 @@ app.post("/classify", async (req, res) => {
         .json({ error: "Invalid input: provide 'prompt' or 'prompts' array" });
     }
 
-    // Wrapper to pass embedding with usage info
-    const getEmbeddingWrapper = async (text) => {
-      const result = await getEmbedding(text);
-      // Return in format expected by classifier
-      return {
-        embedding: result.embedding,
-        usage: result.usage,
-      };
-    };
-
     // Classify all prompts
     const results = [];
     for (const p of inputPrompts) {
-      // classifyText returns { prompt, label, score, consumption }
-      const classification = await classifyText(getEmbeddingWrapper, p, {
+      // classifyText returns { prompt, label, score, source, consumption }
+      const classification = await classifyText(p, OPENAI_API_KEY, {
         useGptFallback: true,
       });
-
-      // Set source based on score
-      const source = classification.score === 0.5 ? "gpt_fallback" : "local";
-
-      results.push({ ...classification, source });
+      // Source is already set by classifyText ("Local" or "fallback")
+      results.push(classification);
     }
 
     // Return single object if only one prompt
@@ -155,21 +121,10 @@ app.post("/api/labels/:labelName/examples", async (req, res) => {
 
     const updatedLabel = addExampleToLabel(labelName, example);
 
-    // Trigger recomputation
-    try {
-      await recomputeEmbeddings();
-      res.json({
-        message: "Example added and embeddings recomputed",
-        label: updatedLabel,
-      });
-    } catch (recomputeErr) {
-      console.error("Error recomputing embeddings:", recomputeErr);
-      res.status(500).json({
-        error: "Example added but embedding recomputation failed",
-        details: recomputeErr.message,
-        label: updatedLabel,
-      });
-    }
+    res.json({
+      message: "Example added successfully!",
+      label: updatedLabel,
+    });
   } catch (err) {
     console.error("Error adding example:", err);
     res
@@ -195,21 +150,10 @@ app.put("/api/labels/:labelName/examples/:index", async (req, res) => {
 
     const updatedLabel = updateExample(labelName, idx, example);
 
-    // Trigger recomputation
-    try {
-      await recomputeEmbeddings();
-      res.json({
-        message: "Example updated and embeddings recomputed",
-        label: updatedLabel,
-      });
-    } catch (recomputeErr) {
-      console.error("Error recomputing embeddings:", recomputeErr);
-      res.status(500).json({
-        error: "Example updated but embedding recomputation failed",
-        details: recomputeErr.message,
-        label: updatedLabel,
-      });
-    }
+    res.json({
+      message: "Example updated successfully!",
+      label: updatedLabel,
+    });
   } catch (err) {
     console.error("Error updating example:", err);
     res
@@ -230,21 +174,10 @@ app.delete("/api/labels/:labelName/examples/:index", async (req, res) => {
 
     const updatedLabel = deleteExample(labelName, idx);
 
-    // Trigger recomputation
-    try {
-      await recomputeEmbeddings();
-      res.json({
-        message: "Example deleted and embeddings recomputed",
-        label: updatedLabel,
-      });
-    } catch (recomputeErr) {
-      console.error("Error recomputing embeddings:", recomputeErr);
-      res.status(500).json({
-        error: "Example deleted but embedding recomputation failed",
-        details: recomputeErr.message,
-        label: updatedLabel,
-      });
-    }
+    res.json({
+      message: "Example deleted successfully!",
+      label: updatedLabel,
+    });
   } catch (err) {
     console.error("Error deleting example:", err);
     res
