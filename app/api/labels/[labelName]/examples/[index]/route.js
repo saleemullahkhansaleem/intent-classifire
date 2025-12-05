@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server';
-import { updateExample, deleteExample } from '@/src/labelsManager.js';
-import { recomputeEmbeddings } from '@/src/embeddingService.js';
+import { NextResponse } from "next/server";
+import { updateExample, deleteExample } from "@/src/labelsManager.js";
 
 export async function PUT(request, { params }) {
   try {
@@ -10,47 +9,40 @@ export async function PUT(request, { params }) {
 
     if (!example) {
       return NextResponse.json(
-        { error: 'Example is required' },
+        { error: "Example is required" },
         { status: 400 }
       );
     }
 
     const idx = parseInt(index, 10);
     if (isNaN(idx)) {
-      return NextResponse.json(
-        { error: 'Invalid index' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid index" }, { status: 400 });
     }
 
     const updatedLabel = updateExample(labelName, idx, example);
 
-    // Trigger recomputation (don't wait for it to complete)
-    recomputeEmbeddings().catch((err) => {
-      console.error('Error recomputing embeddings in background:', err);
-    });
-
     return NextResponse.json({
-      message: 'Example updated successfully. Embeddings are being recomputed in the background.',
+      message: "Example updated successfully!",
       label: updatedLabel,
     });
   } catch (error) {
-    console.error('Error updating example:', error);
+    console.error("Error updating example:", error);
 
     // Check if it's a read-only filesystem error
-    if (error.message && error.message.includes('read-only')) {
+    if (error.message && error.message.includes("read-only")) {
       return NextResponse.json(
         {
-          error: 'File writes not supported in serverless environment',
+          error: "File writes not supported in serverless environment",
           details: error.message,
-          suggestion: 'Please update data/labels.json in your repository and redeploy, or use a database/storage solution.'
+          suggestion:
+            "Please update data/labels.json in your repository and redeploy, or use a database/storage solution.",
         },
         { status: 503 }
       );
     }
 
     return NextResponse.json(
-      { error: 'Failed to update example', details: error.message },
+      { error: "Failed to update example", details: error.message },
       { status: 400 }
     );
   }
@@ -62,42 +54,34 @@ export async function DELETE(request, { params }) {
     const idx = parseInt(index, 10);
 
     if (isNaN(idx)) {
-      return NextResponse.json(
-        { error: 'Invalid index' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid index" }, { status: 400 });
     }
 
     const updatedLabel = deleteExample(labelName, idx);
 
-    // Trigger recomputation (don't wait for it to complete)
-    recomputeEmbeddings().catch((err) => {
-      console.error('Error recomputing embeddings in background:', err);
-    });
-
     return NextResponse.json({
-      message: 'Example deleted successfully. Embeddings are being recomputed in the background.',
+      message: "Example deleted successfully!",
       label: updatedLabel,
     });
   } catch (error) {
-    console.error('Error deleting example:', error);
+    console.error("Error deleting example:", error);
 
     // Check if it's a read-only filesystem error
-    if (error.message && error.message.includes('read-only')) {
+    if (error.message && error.message.includes("read-only")) {
       return NextResponse.json(
         {
-          error: 'File writes not supported in serverless environment',
+          error: "File writes not supported in serverless environment",
           details: error.message,
-          suggestion: 'Please update data/labels.json in your repository and redeploy, or use a database/storage solution.'
+          suggestion:
+            "Please update data/labels.json in your repository and redeploy, or use a database/storage solution.",
         },
         { status: 503 }
       );
     }
 
     return NextResponse.json(
-      { error: 'Failed to delete example', details: error.message },
+      { error: "Failed to delete example", details: error.message },
       { status: 400 }
     );
   }
 }
-

@@ -12,6 +12,7 @@ const projectRoot = path.resolve(__dirname, "..");
 
 let embeddings = {};
 let client;
+let embeddingClient;
 
 // Helper function to find embeddings file using multiple path strategies
 function findEmbeddingsFile() {
@@ -59,8 +60,32 @@ export function initClassifier({ openaiApiKey } = {}) {
 
   if (openaiApiKey) {
     client = new OpenAI({ apiKey: openaiApiKey, timeout: 120000 });
-    console.log("OpenAI client initialized for fallback GPT classification");
+    embeddingClient = new OpenAI({ apiKey: openaiApiKey });
+    console.log("OpenAI client initialized for embeddings and GPT fallback");
   }
+}
+
+// Get embedding using OpenAI API (merged from embed.js)
+async function getEmbedding(text, apiKey) {
+  let clientToUse;
+
+  if (apiKey) {
+    clientToUse = new OpenAI({ apiKey });
+  } else if (embeddingClient) {
+    clientToUse = embeddingClient;
+  } else {
+    throw new Error("OpenAI API key not set");
+  }
+
+  const response = await clientToUse.embeddings.create({
+    model: "text-embedding-3-large",
+    input: text,
+  });
+
+  return {
+    embedding: response.data[0].embedding,
+    usage: response.usage || { total_tokens: 0 },
+  };
 }
 
 // Cosine similarity (safe)
@@ -193,109 +218,123 @@ export function reloadEmbeddings() {
   }
 }
 
-// Classify text: primary embedding + optional GPT fallback
-// getEmbedding can return just embedding array or { embedding, usage }
+// Classify text: check local embeddings first, only call GPT fallback if score < 0.4
 export async function classifyText(
-  getEmbedding,
   text,
+  apiKey,
   { useGptFallback = true } = {}
 ) {
-  let source = "local"; // default
-  let result;
-  let consumption = {
-    tokens: { input: 0, output: 0, total: 0 },
-    cost: { embeddings: 0, gpt: 0, total: 0 },
-  };
-
-  // 1) embed the input
-  let embeddingTokens = 0;
-  let inputEmbedding;
-
   try {
-    const embeddingResponse = await getEmbedding(text);
-
-    // Handle both formats: array or object with usage
-    if (Array.isArray(embeddingResponse)) {
-      inputEmbedding = embeddingResponse;
-      // Estimate tokens (rough: ~1 token per 4 chars for embeddings)
-      embeddingTokens = Math.ceil(text.length / 4);
-    } else if (embeddingResponse.embedding) {
-      inputEmbedding = embeddingResponse.embedding;
-      embeddingTokens =
-        embeddingResponse.usage?.total_tokens || Math.ceil(text.length / 4);
-    } else {
-      inputEmbedding = embeddingResponse;
-      embeddingTokens = Math.ceil(text.length / 4);
+    // Check if we have local embeddings loaded
+    if (Object.keys(embeddings).length === 0) {
+      // No local embeddings, must use API fallback
+      return await classifyWithFallback(text, apiKey, useGptFallback);
     }
 
-    // 2) primary embedding-based guess
+    // Compute embedding for input text (necessary to compare with local embeddings)
+    const embeddingResponse = await getEmbedding(text, apiKey);
+    const inputEmbedding = embeddingResponse.embedding;
+    const embeddingTokens = embeddingResponse.usage?.total_tokens || 0;
+
+    // Compare with local embeddings
     const best = classifyEmbedding(inputEmbedding);
 
+    // If score >= 0.4, return local result with no consumption shown
     if (best.label && best.score >= 0.4) {
-      // Calculate embedding cost: ~$0.00013 per 1K tokens
-      const embeddingCost = (embeddingTokens / 1000) * 0.00013;
-      consumption.tokens.input = embeddingTokens;
-      consumption.tokens.total = embeddingTokens;
-      consumption.cost.embeddings = embeddingCost;
-      consumption.cost.total = embeddingCost;
-
-      result = {
+      return {
         prompt: text,
         label: best.label,
         score: best.score,
-        source,
-        consumption,
+        source: "Local",
+        consumption: null, // No consumption shown for local classification
       };
-      return result;
     }
 
-    // 3) fallback to GPT if low confidence
-    if (useGptFallback && client) {
-      const gptResult = await gptFallbackClassifier(text);
-      if (gptResult) {
-        // Calculate costs
-        const embeddingCost = (embeddingTokens / 1000) * 0.00013;
-        const gptInputCost = ((gptResult.tokens?.input || 0) / 1000000) * 0.15;
-        const gptOutputCost = ((gptResult.tokens?.output || 0) / 1000000) * 0.6;
-        const gptCost = gptInputCost + gptOutputCost;
-
-        consumption.tokens.input =
-          embeddingTokens + (gptResult.tokens?.input || 0);
-        consumption.tokens.output = gptResult.tokens?.output || 0;
-        consumption.tokens.total =
-          embeddingTokens + (gptResult.tokens?.total || 0);
-        consumption.cost.embeddings = embeddingCost;
-        consumption.cost.gpt = gptCost;
-        consumption.cost.total = embeddingCost + gptCost;
-
-        result = {
-          prompt: text,
-          label: gptResult.label,
-          score: gptResult.confidence ?? 0.5,
-          source: "fallback",
-          consumption,
-        };
-        return result;
-      }
-    }
-
-    // 4) fallback to low_effort if no label
-    const embeddingCost = (embeddingTokens / 1000) * 0.00013;
-    consumption.tokens.input = embeddingTokens;
-    consumption.tokens.total = embeddingTokens;
-    consumption.cost.embeddings = embeddingCost;
-    consumption.cost.total = embeddingCost;
-
-    result = {
-      prompt: text,
-      label: "low_effort",
-      score: 0,
-      source,
-      consumption,
-    };
-    return result;
+    // Score < 0.4, use GPT fallback with consumption tracking
+    return await classifyWithFallback(text, apiKey, useGptFallback, {
+      inputEmbedding,
+      embeddingTokens,
+    });
   } catch (err) {
     console.error("Error in classifyText:", err);
     throw err;
   }
+}
+
+// Helper function to classify with fallback API (when score < 0.4)
+async function classifyWithFallback(
+  text,
+  apiKey,
+  useGptFallback,
+  { inputEmbedding, embeddingTokens } = {}
+) {
+  const consumption = {
+    tokens: { input: 0, output: 0, total: 0 },
+    cost: { embeddings: 0, gpt: 0, total: 0 },
+  };
+
+  // Get embedding if not provided
+  if (!inputEmbedding) {
+    const embeddingResponse = await getEmbedding(text, apiKey);
+    inputEmbedding = embeddingResponse.embedding;
+    embeddingTokens = embeddingResponse.usage?.total_tokens || 0;
+  }
+
+  // Check local embeddings one more time (in case they were just loaded)
+  const best = classifyEmbedding(inputEmbedding);
+
+  // If we got a good match after loading, return it (but this shouldn't happen often)
+  if (best.label && best.score >= 0.4) {
+    return {
+      prompt: text,
+      label: best.label,
+      score: best.score,
+      source: "Local",
+      consumption: null,
+    };
+  }
+
+  // Call GPT fallback
+  if (useGptFallback && client) {
+    const gptResult = await gptFallbackClassifier(text);
+    if (gptResult) {
+      // Calculate costs
+      const embeddingCost = (embeddingTokens / 1000) * 0.00013;
+      const gptInputCost = ((gptResult.tokens?.input || 0) / 1000000) * 0.15;
+      const gptOutputCost = ((gptResult.tokens?.output || 0) / 1000000) * 0.6;
+      const gptCost = gptInputCost + gptOutputCost;
+
+      consumption.tokens.input =
+        embeddingTokens + (gptResult.tokens?.input || 0);
+      consumption.tokens.output = gptResult.tokens?.output || 0;
+      consumption.tokens.total =
+        embeddingTokens + (gptResult.tokens?.total || 0);
+      consumption.cost.embeddings = embeddingCost;
+      consumption.cost.gpt = gptCost;
+      consumption.cost.total = embeddingCost + gptCost;
+
+      return {
+        prompt: text,
+        label: gptResult.label,
+        score: gptResult.confidence ?? 0.5,
+        source: "fallback",
+        consumption,
+      };
+    }
+  }
+
+  // Final fallback: no label found, use low_effort
+  const embeddingCost = (embeddingTokens / 1000) * 0.00013;
+  consumption.tokens.input = embeddingTokens;
+  consumption.tokens.total = embeddingTokens;
+  consumption.cost.embeddings = embeddingCost;
+  consumption.cost.total = embeddingCost;
+
+  return {
+    prompt: text,
+    label: "low_effort",
+    score: 0,
+    source: "fallback",
+    consumption,
+  };
 }
