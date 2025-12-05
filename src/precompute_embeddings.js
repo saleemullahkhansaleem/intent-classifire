@@ -11,8 +11,10 @@ async function getEmbedding(text) {
   }
 
   const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+  const embeddingModel =
+    process.env.EMBEDDING_MODEL || "text-embedding-3-large";
   const response = await client.embeddings.create({
-    model: "text-embedding-3-large",
+    model: embeddingModel,
     input: text,
   });
   return response.data[0].embedding;

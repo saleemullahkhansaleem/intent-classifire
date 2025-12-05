@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
 export default function ConsumptionMetrics({ consumption }) {
   if (!consumption) return null;
 
   const formatCost = (cost) => {
-    if (cost < 0.0001) return `$${(cost * 1000000).toFixed(2)} (microcents)`;
+    if (!cost || cost === 0) return "$0.000000";
     if (cost < 0.01) return `$${cost.toFixed(6)}`;
     return `$${cost.toFixed(4)}`;
   };
@@ -73,4 +73,3 @@ export default function ConsumptionMetrics({ consumption }) {
     </div>
   );
 }
-

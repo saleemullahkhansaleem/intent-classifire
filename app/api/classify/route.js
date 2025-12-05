@@ -6,13 +6,16 @@ import { classifyText, initClassifier } from "@/src/classifier.js";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OpenAI;
 let classifierInitialized = false;
 
-if (!classifierInitialized) {
-  initClassifier({ openaiApiKey: OPENAI_API_KEY });
-  classifierInitialized = true;
+async function ensureClassifierInitialized() {
+  if (!classifierInitialized) {
+    await initClassifier({ openaiApiKey: OPENAI_API_KEY });
+    classifierInitialized = true;
+  }
 }
 
 export async function POST(request) {
   try {
+    await ensureClassifierInitialized();
     const body = await request.json();
     const { prompt, prompts } = body;
 

@@ -11,8 +11,10 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 
 let embeddings = {};
+let categoryThresholds = {}; // Store per-category thresholds
 let client;
 let embeddingClient;
+let useDatabase = false;
 
 // Helper function to find embeddings file using multiple path strategies
 function findEmbeddingsFile() {
@@ -37,13 +39,62 @@ function findEmbeddingsFile() {
 }
 
 // Initialize classifier and optionally OpenAI client for GPT fallback
-export function initClassifier({ openaiApiKey } = {}) {
+export async function initClassifier({ openaiApiKey } = {}) {
+  // Try to load from database first
+  try {
+    const { initDatabase } = await import("./db/database.js");
+    const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
+    const { getAllCategories } = await import("./db/queries/categories.js");
+
+    await initDatabase();
+    const dbEmbeddings = await getAllEmbeddings();
+    const categories = await getAllCategories();
+
+    if (Object.keys(dbEmbeddings).length > 0) {
+      embeddings = dbEmbeddings;
+      // Store thresholds by category name
+      categoryThresholds = {};
+      for (const category of categories) {
+        categoryThresholds[category.name] = category.threshold || 0.4;
+      }
+      useDatabase = true;
+      console.log(
+        `Embeddings loaded from database (${
+          Object.keys(embeddings).length
+        } categories)`
+      );
+      console.log(`Category thresholds loaded:`, categoryThresholds);
+    } else {
+      // Fallback to JSON file
+      await loadEmbeddingsFromFile();
+    }
+  } catch (err) {
+    console.warn(
+      "Database not available, falling back to JSON file:",
+      err.message
+    );
+    await loadEmbeddingsFromFile();
+  }
+
+  if (openaiApiKey) {
+    client = new OpenAI({ apiKey: openaiApiKey, timeout: 120000 });
+    embeddingClient = new OpenAI({ apiKey: openaiApiKey });
+    console.log("OpenAI client initialized for embeddings and GPT fallback");
+  }
+}
+
+// Load embeddings from JSON file (fallback)
+async function loadEmbeddingsFromFile() {
   const embeddingsPath = findEmbeddingsFile();
 
   if (embeddingsPath) {
     try {
       embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
       console.log(`Embeddings loaded from: ${embeddingsPath}`);
+      // Use default threshold for all categories from JSON
+      for (const categoryName of Object.keys(embeddings)) {
+        categoryThresholds[categoryName] = 0.4;
+      }
     } catch (err) {
       console.warn(
         "Failed to load embeddings file, using empty embeddings:",
@@ -56,12 +107,6 @@ export function initClassifier({ openaiApiKey } = {}) {
       "Embeddings file not found. Using empty embeddings. Please run recompute-embeddings endpoint to generate it."
     );
     embeddings = {};
-  }
-
-  if (openaiApiKey) {
-    client = new OpenAI({ apiKey: openaiApiKey, timeout: 120000 });
-    embeddingClient = new OpenAI({ apiKey: openaiApiKey });
-    console.log("OpenAI client initialized for embeddings and GPT fallback");
   }
 }
 
@@ -77,8 +122,10 @@ async function getEmbedding(text, apiKey) {
     throw new Error("OpenAI API key not set");
   }
 
+  const embeddingModel =
+    process.env.EMBEDDING_MODEL || "text-embedding-3-large";
   const response = await clientToUse.embeddings.create({
-    model: "text-embedding-3-large",
+    model: embeddingModel,
     input: text,
   });
 
@@ -122,28 +169,47 @@ export function classifyEmbedding(inputEmbedding) {
   return best;
 }
 
+// Get threshold for a category (defaults to 0.4)
+export function getCategoryThreshold(categoryName) {
+  return categoryThresholds[categoryName] || 0.4;
+}
+
 // GPT fallback classification for ambiguous or low-confidence cases
 async function gptFallbackClassifier(text) {
   if (!client) return null;
 
   try {
+    // Dynamically load categories from database or use defaults
+    let categoryList = [];
+    try {
+      const { getCategoriesForPrompt } = await import("./config/categories.js");
+      const categories = await getCategoriesForPrompt();
+      categoryList = categories.map((cat) => `- ${cat.name}`);
+    } catch (err) {
+      // Fallback to default categories
+      categoryList = [
+        "- low_effort",
+        "- reasoning",
+        "- code",
+        "- image_generation",
+        "- image_edit",
+        "- web_surfing",
+        "- ppt_generation",
+      ];
+    }
+
     const prompt = `
 You are a classifier assistant. Classify the following user request into one of these categories:
-- low_effort
-- reasoning
-- code
-- image_generation
-- image_edit
-- web_surfing
-- ppt_generation
+${categoryList.join("\n")}
 
 Respond with JSON like: { "label": "<category>", "confidence": 0.0-1.0 }
 
 Request: """${text}"""
 `;
 
+    const fallbackModel = process.env.FALLBACK_MODEL || "gpt-4o-mini";
     const res = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: fallbackModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
     });
@@ -159,36 +225,33 @@ Request: """${text}"""
       total: usage.total_tokens || 0,
     };
 
+    // Validate against database categories
+    let validCategories = [];
+    try {
+      const { getValidCategoryNames } = await import("./config/categories.js");
+      validCategories = await getValidCategoryNames();
+    } catch (err) {
+      // Fallback to default categories
+      validCategories = [
+        "low_effort",
+        "reasoning",
+        "code",
+        "image_generation",
+        "image_edit",
+        "web_surfing",
+        "ppt_generation",
+      ];
+    }
+
     try {
       const parsed = JSON.parse(content);
-      if (
-        parsed.label &&
-        [
-          "low_effort",
-          "reasoning",
-          "code",
-          "image_generation",
-          "image_edit",
-          "web_surfing",
-          "ppt_generation",
-        ].includes(parsed.label)
-      ) {
+      if (parsed.label && validCategories.includes(parsed.label)) {
         return { ...parsed, tokens }; // { label, confidence, tokens }
       }
     } catch (err) {
       // fallback: if GPT didn't return JSON, just return label with default confidence
       const label = content.split("\n")[0].trim();
-      if (
-        [
-          "low_effort",
-          "reasoning",
-          "code",
-          "image_generation",
-          "image_edit",
-          "web_surfing",
-          "ppt_generation",
-        ].includes(label)
-      ) {
+      if (validCategories.includes(label)) {
         return { label, confidence: 0.5, tokens };
       }
     }
@@ -201,20 +264,25 @@ Request: """${text}"""
 }
 
 // Reload embeddings (useful after recomputation)
-export function reloadEmbeddings() {
-  const embeddingsPath = findEmbeddingsFile();
-
-  if (embeddingsPath) {
+export async function reloadEmbeddings() {
+  if (useDatabase) {
     try {
-      embeddings = JSON.parse(fs.readFileSync(embeddingsPath, "utf-8"));
-      console.log(`Embeddings reloaded from: ${embeddingsPath}`);
+      const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
+      const { getAllCategories } = await import("./db/queries/categories.js");
+
+      embeddings = await getAllEmbeddings();
+      const categories = await getAllCategories();
+      categoryThresholds = {};
+      for (const category of categories) {
+        categoryThresholds[category.name] = category.threshold || 0.4;
+      }
+      console.log(`Embeddings reloaded from database`);
     } catch (err) {
-      console.warn("Failed to reload embeddings:", err.message);
-      embeddings = {};
+      console.warn("Failed to reload embeddings from database:", err.message);
+      await loadEmbeddingsFromFile();
     }
   } else {
-    console.warn("Embeddings file not found during reload");
-    embeddings = {};
+    await loadEmbeddingsFromFile();
   }
 }
 
@@ -239,8 +307,11 @@ export async function classifyText(
     // Compare with local embeddings
     const best = classifyEmbedding(inputEmbedding);
 
-    // If score >= 0.4, return local result with no consumption shown
-    if (best.label && best.score >= 0.4) {
+    // Get threshold for the matched category
+    const threshold = best.label ? getCategoryThreshold(best.label) : 0.4;
+
+    // If score >= threshold, return local result with no consumption shown
+    if (best.label && best.score >= threshold) {
       return {
         prompt: text,
         label: best.label,
@@ -283,8 +354,11 @@ async function classifyWithFallback(
   // Check local embeddings one more time (in case they were just loaded)
   const best = classifyEmbedding(inputEmbedding);
 
+  // Get threshold for the matched category
+  const threshold = best.label ? getCategoryThreshold(best.label) : 0.4;
+
   // If we got a good match after loading, return it (but this shouldn't happen often)
-  if (best.label && best.score >= 0.4) {
+  if (best.label && best.score >= threshold) {
     return {
       prompt: text,
       label: best.label,
