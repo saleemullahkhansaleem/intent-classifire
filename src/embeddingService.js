@@ -88,11 +88,15 @@ export async function recomputeEmbeddings() {
       console.log(
         "[Recompute] Using database for embedding recomputation (production mode)"
       );
-      // Use database
+      // Use database with timeout limits for Vercel
+      // Vercel Hobby: 10s, Pro: 60s - we'll use 45s to be safe
+      const maxDuration = 45; // Leave buffer for response time
+      const maxExamples = 100; // Process max 100 examples per request to avoid timeout
       return await recomputeEmbeddingsFromDatabase(
         categories,
         getExamplesByCategoryId,
-        updateExampleEmbedding
+        updateExampleEmbedding,
+        { maxDuration, maxExamples }
       );
     }
 
@@ -101,10 +105,12 @@ export async function recomputeEmbeddings() {
       console.log(
         "[Recompute] Using database for embedding recomputation (local mode)"
       );
+      // No limits for local development
       return await recomputeEmbeddingsFromDatabase(
         categories,
         getExamplesByCategoryId,
-        updateExampleEmbedding
+        updateExampleEmbedding,
+        { maxDuration: 300, maxExamples: null } // 5 minutes for local
       );
     }
 
@@ -133,22 +139,41 @@ export async function recomputeEmbeddings() {
 async function recomputeEmbeddingsFromDatabase(
   categories,
   getExamplesByCategoryId,
-  updateExampleEmbedding
+  updateExampleEmbedding,
+  options = {}
 ) {
+  const { maxDuration = 50, maxExamples = null } = options; // Default 50s to leave buffer for response
+
   // Consumption tracking
   let totalTokens = 0;
   let totalInputTokens = 0;
   let processedCategories = 0;
   let totalExamples = 0;
+  let skippedExamples = 0;
+  const startTime = Date.now();
 
   console.log("Starting embedding recomputation from database...");
   console.log(`Processing ${categories.length} categories`);
+  if (maxExamples) {
+    console.log(
+      `Limiting to ${maxExamples} examples per request to avoid timeout`
+    );
+  }
 
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY not set. Please set it in your .env file.");
   }
 
   for (const category of categories) {
+    // Check timeout (leave 2 seconds buffer for response)
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (elapsed > maxDuration) {
+      console.warn(
+        `⏱️ Timeout approaching (${elapsed.toFixed(1)}s), stopping processing`
+      );
+      break;
+    }
+
     console.log(`Processing category: ${category.name} (ID: ${category.id})`);
 
     const examples = await getExamplesByCategoryId(category.id);
@@ -161,6 +186,23 @@ async function recomputeEmbeddingsFromDatabase(
     console.log(`  Processing ${examples.length} examples...`);
 
     for (const example of examples) {
+      // Check max examples limit
+      if (maxExamples && totalExamples >= maxExamples) {
+        console.warn(
+          `⏱️ Reached max examples limit (${maxExamples}), stopping processing`
+        );
+        break;
+      }
+
+      // Check timeout before each API call
+      const elapsed = (Date.now() - startTime) / 1000;
+      if (elapsed > maxDuration) {
+        console.warn(
+          `⏱️ Timeout approaching (${elapsed.toFixed(1)}s), stopping processing`
+        );
+        break;
+      }
+
       try {
         const result = await getEmbedding(example.text);
         await updateExampleEmbedding(example.id, result.embedding);
@@ -170,30 +212,64 @@ async function recomputeEmbeddingsFromDatabase(
         totalTokens += tokens;
         totalInputTokens += tokens;
         totalExamples++;
+
+        // Log progress every 10 examples
+        if (totalExamples % 10 === 0) {
+          console.log(
+            `  Progress: ${totalExamples} examples processed (${elapsed.toFixed(
+              1
+            )}s elapsed)`
+          );
+        }
       } catch (err) {
         console.error(
           `Error embedding example "${example.text?.substring(0, 50)}...":`,
           err.message
         );
+        skippedExamples++;
         // Continue with other examples
       }
+    }
+
+    if (
+      totalExamples >= (maxExamples || Infinity) ||
+      (Date.now() - startTime) / 1000 > maxDuration
+    ) {
+      break;
     }
 
     processedCategories++;
   }
 
-  // Reload embeddings in classifier
-  await reloadEmbeddings();
+  const elapsed = (Date.now() - startTime) / 1000;
+  const wasTimeout = elapsed >= maxDuration;
+  const wasLimited = maxExamples && totalExamples >= maxExamples;
+
+  // Only reload embeddings if we completed processing
+  if (!wasTimeout && !wasLimited) {
+    await reloadEmbeddings();
+  }
 
   // Calculate consumption costs
   const embeddingCost = (totalTokens / 1000) * 0.00013;
 
+  const message = wasTimeout
+    ? `Processing stopped due to timeout. ${totalExamples} examples processed in ${elapsed.toFixed(
+        1
+      )}s. Please run again to process remaining examples.`
+    : wasLimited
+    ? `Processing limited to ${maxExamples} examples. ${totalExamples} examples processed. Please run again to process remaining examples.`
+    : "Embeddings recomputed successfully from database";
+
   return {
     success: true,
-    message: "Embeddings recomputed successfully from database",
+    message,
     labelsProcessed: processedCategories,
     totalExamples: totalExamples,
-    persisted: true,
+    skippedExamples: skippedExamples,
+    elapsedSeconds: elapsed.toFixed(1),
+    incomplete: wasTimeout || wasLimited,
+    persisted: !wasTimeout && !wasLimited,
     consumption: {
       tokens: {
         input: totalInputTokens,
