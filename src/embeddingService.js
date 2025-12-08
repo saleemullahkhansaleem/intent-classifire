@@ -45,7 +45,20 @@ async function getEmbedding(text) {
 
 // Recompute embeddings - tries database first, falls back to JSON
 export async function recomputeEmbeddings() {
-  // Try database first
+  // Check if we're in a production/Vercel environment
+  const isProduction =
+    process.env.VERCEL === "1" ||
+    process.env.VERCEL_ENV ||
+    process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL;
+
+  console.log(
+    `[Recompute] Environment: ${
+      isProduction ? "Production/Vercel" : "Local Development"
+    }`
+  );
+
+  // Try database first (always on production/Vercel)
   try {
     const { initDatabase } = await import("./db/database.js");
     const { getAllCategories } = await import("./db/queries/categories.js");
@@ -56,10 +69,25 @@ export async function recomputeEmbeddings() {
       "./db/queries/embeddings.js"
     );
 
+    console.log("[Recompute] Initializing database...");
     await initDatabase();
-    const categories = await getAllCategories();
 
-    if (categories.length > 0) {
+    console.log("[Recompute] Fetching categories from database...");
+    const categories = await getAllCategories();
+    console.log(
+      `[Recompute] Found ${categories.length} categories in database`
+    );
+
+    // On production/Vercel, always use database (don't fall back to JSON)
+    if (isProduction) {
+      if (categories.length === 0) {
+        throw new Error(
+          "No categories found in database. Please ensure POSTGRES_URL is set in Vercel environment variables and run the migration to seed data from labels.json."
+        );
+      }
+      console.log(
+        "[Recompute] Using database for embedding recomputation (production mode)"
+      );
       // Use database
       return await recomputeEmbeddingsFromDatabase(
         categories,
@@ -67,11 +95,37 @@ export async function recomputeEmbeddings() {
         updateExampleEmbedding
       );
     }
+
+    // Local development: use database if it has data, otherwise fall back to JSON
+    if (categories.length > 0) {
+      console.log(
+        "[Recompute] Using database for embedding recomputation (local mode)"
+      );
+      return await recomputeEmbeddingsFromDatabase(
+        categories,
+        getExamplesByCategoryId,
+        updateExampleEmbedding
+      );
+    }
+
+    console.log(
+      "[Recompute] No categories in database, falling back to JSON file (local mode)"
+    );
   } catch (err) {
-    console.warn("Database not available, falling back to JSON:", err.message);
+    // On production/Vercel, don't fall back to JSON - fail with clear error
+    if (isProduction) {
+      console.error("[Recompute] Database error on Vercel:", err.message);
+      throw new Error(
+        `Database error on Vercel: ${err.message}. Please ensure POSTGRES_URL is set in Vercel environment variables and data has been migrated.`
+      );
+    }
+    console.warn(
+      "[Recompute] Database not available, falling back to JSON:",
+      err.message
+    );
   }
 
-  // Fallback to JSON file
+  // Fallback to JSON file (only in local development)
   return await recomputeEmbeddingsFromJSON();
 }
 

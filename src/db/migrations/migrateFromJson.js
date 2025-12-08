@@ -25,7 +25,7 @@ export async function migrateFromJson(options = {}) {
   const labels = JSON.parse(fs.readFileSync(labelsPath, "utf-8"));
 
   // Check if database already has categories
-  const existingCategories = await getAllCategories();
+  let existingCategories = await getAllCategories();
 
   if (existingCategories.length > 0 && !force) {
     console.log("Database already has categories. Skipping JSON migration.");
@@ -39,66 +39,89 @@ export async function migrateFromJson(options = {}) {
     await db.execute("DELETE FROM examples");
     await db.execute("DELETE FROM categories");
     console.log("Existing data cleared.");
+    // Refresh existingCategories after clearing
+    existingCategories = [];
   }
 
   console.log(`Migrating ${labels.length} categories from JSON...`);
 
   let totalExamples = 0;
 
-  for (const label of labels) {
-    // Check if category already exists (in case of partial migration)
-    const existingCategory = existingCategories.find(
-      (c) => c.name === label.name
-    );
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i];
 
-    let categoryId;
-
-    if (existingCategory && !force) {
-      // Category exists, skip or update?
-      console.log(`Category "${label.name}" already exists. Skipping...`);
-      categoryId = existingCategory.id;
-    } else {
-      // Insert category
-      const categoryResult = await db.query(
-        `INSERT INTO categories (name, description, threshold)
-         VALUES ($1, $2, $3) RETURNING id`,
-        [label.name, label.description || null, 0.4]
+    try {
+      console.log(
+        `[${i + 1}/${labels.length}] Processing category: ${label.name}...`
       );
 
-      const rows = categoryResult.rows || categoryResult;
-      categoryId = rows[0].id;
-    }
-
-    // Insert examples (only if category was just created or force mode)
-    if (label.examples && label.examples.length > 0) {
-      // Get existing examples for this category
-      const { getExamplesByCategoryId } = await import(
-        "../queries/examples.js"
+      // Check if category already exists (in case of partial migration)
+      const existingCategory = existingCategories.find(
+        (c) => c.name === label.name
       );
-      const existingExamples = await getExamplesByCategoryId(categoryId);
-      const existingTexts = new Set(existingExamples.map((ex) => ex.text));
 
-      let addedCount = 0;
-      for (const exampleText of label.examples) {
-        // Skip if example already exists
-        if (existingTexts.has(exampleText)) {
-          continue;
+      let categoryId;
+
+      if (existingCategory && !force) {
+        // Category exists, skip or update?
+        console.log(`  Category "${label.name}" already exists. Skipping...`);
+        categoryId = existingCategory.id;
+      } else {
+        // Insert category
+        const categoryResult = await db.query(
+          `INSERT INTO categories (name, description, threshold)
+           VALUES ($1, $2, $3) RETURNING id`,
+          [label.name, label.description || null, 0.4]
+        );
+
+        const rows = categoryResult.rows || categoryResult;
+        categoryId = rows[0]?.id || rows[0];
+
+        if (!categoryId) {
+          throw new Error(`Failed to get category ID for ${label.name}`);
         }
 
-        await db.execute(
-          `INSERT INTO examples (category_id, text)
-           VALUES ($1, $2)`,
-          [categoryId, exampleText]
-        );
-        addedCount++;
+        console.log(`  ✓ Category inserted with ID: ${categoryId}`);
       }
 
-      totalExamples += addedCount;
-      console.log(
-        `Migrated category: ${label.name} (${addedCount} new examples, ${existingExamples.length} existing)`
+      // Insert examples (only if category was just created or force mode)
+      if (label.examples && label.examples.length > 0) {
+        // Get existing examples for this category
+        const { getExamplesByCategoryId } = await import(
+          "../queries/examples.js"
+        );
+        const existingExamples = await getExamplesByCategoryId(categoryId);
+        const existingTexts = new Set(existingExamples.map((ex) => ex.text));
+
+        let addedCount = 0;
+        for (const exampleText of label.examples) {
+          // Skip if example already exists
+          if (existingTexts.has(exampleText)) {
+            continue;
+          }
+
+          await db.execute(
+            `INSERT INTO examples (category_id, text)
+             VALUES ($1, $2)`,
+            [categoryId, exampleText]
+          );
+          addedCount++;
+        }
+
+        totalExamples += addedCount;
+        console.log(
+          `  ✓ Migrated category: ${label.name} (${addedCount} new examples, ${existingExamples.length} existing)`
+        );
+      } else {
+        console.log(`  ✓ Migrated category: ${label.name} (0 examples)`);
+      }
+    } catch (error) {
+      console.error(
+        `  ❌ Error migrating category "${label.name}":`,
+        error.message
       );
-    } else {
-      console.log(`Migrated category: ${label.name} (0 examples)`);
+      console.error(error);
+      // Continue with next category
     }
   }
 
