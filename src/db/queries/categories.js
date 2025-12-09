@@ -105,3 +105,15 @@ export async function deleteCategory(id) {
 export async function updateCategoryThreshold(id, threshold) {
   return updateCategory(id, { threshold });
 }
+
+/**
+ * Update threshold for all categories
+ */
+export async function updateAllCategoriesThreshold(threshold) {
+  const db = getDb();
+  const result = await db.query(
+    `UPDATE categories SET threshold = $1, updated_at = CURRENT_TIMESTAMP RETURNING *`,
+    [threshold]
+  );
+  return result.rows || result;
+}
