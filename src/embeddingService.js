@@ -279,8 +279,7 @@ async function recomputeEmbeddingsFromDatabase(
 
   // Only reload embeddings if we completed processing
   if (!wasTimeout && !wasLimited) {
-    await reloadEmbeddings();
-    // Save embeddings to storage (Blob on prod, local file on dev)
+    // Save embeddings to storage (Blob on prod, local file in dev)
     try {
       const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
       const freshEmbeddings = await getAllEmbeddings();
@@ -288,6 +287,9 @@ async function recomputeEmbeddingsFromDatabase(
         await saveEmbeddings(freshEmbeddings);
         // Invalidate in-memory cache so next load gets fresh data
         invalidateCache();
+        // Force reload from fresh storage to update classifier's embeddings variable
+        console.log("[Recompute] Forcing embeddings reload after save...");
+        await reloadEmbeddings();
       }
     } catch (err) {
       console.warn("[Recompute] Failed to save embeddings:", err.message);
