@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { initClassifier } from "@/src/classifier.js";
 
+// Don't statically generate this route - it requires runtime dependencies
+export const dynamic = "force-dynamic";
+
 /**
  * Diagnostic endpoint to check embeddings status
  * Useful for debugging Vercel deployment issues

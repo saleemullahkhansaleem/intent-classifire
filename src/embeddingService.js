@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { reloadEmbeddings } from "./classifier.js";
+import { saveEmbeddings, invalidateCache } from "./classifier.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -151,6 +152,9 @@ async function recomputeEmbeddingsFromDatabase(
   let skippedExamples = 0;
   let alreadyComputedTotal = 0;
   const startTime = Date.now();
+  
+  // Per-category stats
+  const categoryStats = {};
 
   console.log("Starting embedding recomputation from database...");
   console.log(`Processing ${categories.length} categories`);
@@ -180,9 +184,20 @@ async function recomputeEmbeddingsFromDatabase(
     }
 
     console.log(`Processing category: ${category.name} (ID: ${category.id})`);
+    
+    // Initialize category stats
+    categoryStats[category.name] = {
+      name: category.name,
+      total: 0,
+      computed: 0,
+      alreadyComputed: 0,
+      failed: 0
+    };
 
     // Get all examples to count already-computed ones
     const allExamples = await getExamplesByCategoryId(category.id);
+    categoryStats[category.name].total = allExamples.length;
+    
     // Only process uncomputed examples
     const examples = await getUncomputedExamplesByCategoryId(category.id);
     const alreadyComputed = allExamples.length - examples.length;
@@ -190,6 +205,7 @@ async function recomputeEmbeddingsFromDatabase(
     if (alreadyComputed > 0) {
       console.log(`Skipping ${alreadyComputed} already-computed examples for ${category.name}`);
       alreadyComputedTotal += alreadyComputed;
+      categoryStats[category.name].alreadyComputed = alreadyComputed;
     }
 
     if (!examples || examples.length === 0) {
@@ -226,6 +242,7 @@ async function recomputeEmbeddingsFromDatabase(
         totalTokens += tokens;
         totalInputTokens += tokens;
         totalExamples++;
+        categoryStats[category.name].computed++;
 
         // Log progress every 10 examples
         if (totalExamples % 10 === 0) {
@@ -241,6 +258,7 @@ async function recomputeEmbeddingsFromDatabase(
           err.message
         );
         skippedExamples++;
+        categoryStats[category.name].failed++;
         // Continue with other examples
       }
     }
@@ -262,6 +280,19 @@ async function recomputeEmbeddingsFromDatabase(
   // Only reload embeddings if we completed processing
   if (!wasTimeout && !wasLimited) {
     await reloadEmbeddings();
+    // Save embeddings to storage (Blob on prod, local file on dev)
+    try {
+      const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
+      const freshEmbeddings = await getAllEmbeddings();
+      if (Object.keys(freshEmbeddings).length > 0) {
+        await saveEmbeddings(freshEmbeddings);
+        // Invalidate in-memory cache so next load gets fresh data
+        invalidateCache();
+      }
+    } catch (err) {
+      console.warn("[Recompute] Failed to save embeddings:", err.message);
+      // Continue anyway - embeddings are in database
+    }
   }
 
   // Calculate consumption costs
@@ -281,6 +312,7 @@ async function recomputeEmbeddingsFromDatabase(
     success: true,
     message,
     labelsProcessed: processedCategories,
+    categoryStats: categoryStats,
     totalExamples: totalExamples,
     skippedExamples: skippedExamples,
     alreadyComputed: alreadyComputedTotal,

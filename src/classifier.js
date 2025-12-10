@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
+import { loadEmbeddingsFromStorage, saveEmbeddings, invalidateCache, getCachedEmbeddings } from "./blobService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,54 +41,71 @@ function findEmbeddingsFile() {
 
 // Initialize classifier and optionally OpenAI client for GPT fallback
 export async function initClassifier({ openaiApiKey } = {}) {
-  // Try to load from database first
+  // Try storage (Blob on prod, local file on dev) first
   try {
-    const { initDatabase } = await import("./db/database.js");
-    const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
-    const { getAllCategories } = await import("./db/queries/categories.js");
-
-    await initDatabase();
-    const dbEmbeddings = await getAllEmbeddings();
-    const categories = await getAllCategories();
-
-    if (Object.keys(dbEmbeddings).length > 0) {
-      embeddings = dbEmbeddings;
-      // Store thresholds by category name
-      categoryThresholds = {};
-      for (const category of categories) {
-        categoryThresholds[category.name] = category.threshold || 0.4;
+    const storageEmbeddings = await loadEmbeddingsFromStorage();
+    if (storageEmbeddings && Object.keys(storageEmbeddings).length > 0) {
+      embeddings = storageEmbeddings;
+      // Use default threshold for all categories
+      for (const categoryName of Object.keys(embeddings)) {
+        categoryThresholds[categoryName] = 0.4;
       }
-      useDatabase = true;
       console.log(
-        `✅ Embeddings loaded from database (${
+        `✅ Embeddings loaded from storage (${
           Object.keys(embeddings).length
         } categories)`
       );
-      console.log(`Category thresholds loaded:`, categoryThresholds);
-
-      // Log embedding counts per category for debugging
-      for (const [catName, exs] of Object.entries(embeddings)) {
-        console.log(`  - ${catName}: ${exs.length} examples with embeddings`);
-      }
     } else {
-      console.warn(
-        "No embeddings found in database, falling back to JSON file"
-      );
-      // Fallback to JSON file
-      await loadEmbeddingsFromFile();
+      throw new Error("No embeddings found in storage");
     }
   } catch (err) {
-    console.warn(
-      "Database not available, falling back to JSON file:",
-      err.message
-    );
+    console.warn("Storage not available, trying database:", err.message);
+  }
+
+  // Try database if storage didn't work
+  if (Object.keys(embeddings).length === 0) {
+    try {
+      const { initDatabase } = await import("./db/database.js");
+      const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
+      const { getAllCategories } = await import("./db/queries/categories.js");
+
+      await initDatabase();
+      const dbEmbeddings = await getAllEmbeddings();
+      const categories = await getAllCategories();
+
+      if (Object.keys(dbEmbeddings).length > 0) {
+        embeddings = dbEmbeddings;
+        categoryThresholds = {};
+        for (const category of categories) {
+          categoryThresholds[category.name] = category.threshold || 0.4;
+        }
+        useDatabase = true;
+        console.log(
+          `✅ Embeddings loaded from database (${
+            Object.keys(embeddings).length
+          } categories)`
+        );
+        // Log embedding counts per category
+        for (const [catName, exs] of Object.entries(embeddings)) {
+          console.log(`  - ${catName}: ${exs.length} examples`);
+        }
+      } else {
+        throw new Error("No embeddings in database");
+      }
+    } catch (err) {
+      console.warn("Database not available, trying JSON file:", err.message);
+    }
+  }
+
+  // Fallback to local JSON file
+  if (Object.keys(embeddings).length === 0) {
     await loadEmbeddingsFromFile();
   }
 
   if (openaiApiKey) {
     client = new OpenAI({ apiKey: openaiApiKey, timeout: 120000 });
     embeddingClient = new OpenAI({ apiKey: openaiApiKey });
-    console.log("OpenAI client initialized for embeddings and GPT fallback");
+    console.log("OpenAI client initialized");
   }
 }
 
@@ -354,15 +372,29 @@ export async function classifyText(
   { useGptFallback = true } = {}
 ) {
   try {
-    // Always try to reload embeddings from database (especially on Vercel/serverless)
-    // This ensures fresh data on each request in serverless environments
-    const shouldReload =
-      Object.keys(embeddings).length === 0 ||
-      useDatabase ||
-      process.env.VERCEL === "1" ||
-      process.env.POSTGRES_URL;
+    // Try to use cached embeddings first (avoid DB reload on every request)
+    if (Object.keys(embeddings).length === 0) {
+      try {
+        const cached = getCachedEmbeddings();
+        if (cached && Object.keys(cached).length > 0) {
+          embeddings = cached;
+          categoryThresholds = {};
+          for (const categoryName of Object.keys(embeddings)) {
+            categoryThresholds[categoryName] = 0.4;
+          }
+          console.log(`[Classify] Loaded embeddings from cache (${Object.keys(embeddings).length} categories)`);
+        }
+      } catch (err) {
+        console.warn("[Classify] Error checking cached embeddings:", err.message);
+      }
+    }
 
-    if (shouldReload) {
+    // Only reload from DB if embeddings are still empty AND no cache available
+    // Can force reload with EMBEDDINGS_FORCE_RELOAD=1 env var
+    const forceReload = !!process.env.EMBEDDINGS_FORCE_RELOAD;
+    const shouldReloadFromDb = (Object.keys(embeddings).length === 0 && !getCachedEmbeddings()) || forceReload;
+
+    if (shouldReloadFromDb) {
       try {
         console.log("[Classify] Reloading embeddings from database...");
         await reloadEmbeddings();
@@ -373,7 +405,6 @@ export async function classifyText(
         );
       } catch (err) {
         console.error("[Classify] Failed to reload embeddings:", err.message);
-        console.error("[Classify] Error stack:", err.stack);
         // Continue anyway, might have cached embeddings
       }
     }
@@ -537,3 +568,6 @@ async function classifyWithFallback(
     consumption,
   };
 }
+
+// Re-export storage functions for use in other modules
+export { saveEmbeddings, invalidateCache, getCachedEmbeddings };
