@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { reloadEmbeddings } from "./classifier.js";
-import { saveEmbeddings, invalidateCache } from "./classifier.js";
+import { saveEmbeddings, invalidateCache, reloadFromStorage } from "./blobService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -284,16 +284,28 @@ async function recomputeEmbeddingsFromDatabase(
       const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
       const freshEmbeddings = await getAllEmbeddings();
       if (Object.keys(freshEmbeddings).length > 0) {
+        console.log("[Recompute] Saving embeddings to storage...");
         await saveEmbeddings(freshEmbeddings);
-        // Invalidate in-memory cache so next load gets fresh data
-        invalidateCache();
-        // Force reload from fresh storage to update classifier's embeddings variable
-        console.log("[Recompute] Forcing embeddings reload after save...");
-        await reloadEmbeddings();
+
+        // Reload from storage (NOT from database) to refresh the cache
+        console.log("[Recompute] Reloading embeddings from storage to refresh cache...");
+        const storageEmbeddings = await reloadFromStorage();
+
+        if (storageEmbeddings && Object.keys(storageEmbeddings).length > 0) {
+          console.log(`[Recompute] ✅ Embeddings refreshed from storage (${Object.keys(storageEmbeddings).length} categories)`);
+          // NOW reload into classifier from the refreshed storage
+          console.log("[Recompute] Reloading classifier from refreshed cache...");
+          await reloadEmbeddings();
+        } else {
+          console.warn("[Recompute] Failed to reload from storage, falling back to database reload...");
+          await reloadEmbeddings();
+        }
       }
     } catch (err) {
       console.warn("[Recompute] Failed to save embeddings:", err.message);
       // Continue anyway - embeddings are in database
+      // Try to reload from database as fallback
+      await reloadEmbeddings();
     }
   }
 

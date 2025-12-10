@@ -8,16 +8,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 
-const EMBEDDINGS_BLOB_PATH = "classifier-embeddings.json";
+const EMBEDDINGS_BLOB_PATH = "intent-classifire-blob/classifier-embeddings.json";
 const LOCAL_EMBEDDINGS_FILE = path.resolve(projectRoot, "src", "classifier_embeddings.json");
 
 // Check if in production (Vercel)
 const isProduction = process.env.VERCEL === "1" || process.env.VERCEL_ENV;
-const useBlob = isProduction && process.env.BLOB_READ_WRITE_TOKEN;
+// Use Blob if we have the token AND we're on Vercel, OR if explicitly enabled
+const useBlob = isProduction && !!process.env.BLOB_READ_WRITE_TOKEN;
 
 let cachedEmbeddings = null;
 let lastLoadTime = 0;
 const CACHE_DURATION = 30 * 60 * 1000; // Cache for 30 minutes
+
+// Debug logging for storage mode
+if (typeof window === 'undefined') { // Only log on server side
+  console.log(`[EmbeddingStorage] Mode: ${useBlob ? 'Blob (production)' : isProduction ? 'Local fallback (Blob token missing)' : 'Local (development)'}`);
+}
 
 /**
  * Load embeddings from appropriate storage (Blob in production, local file in dev)
@@ -150,6 +156,12 @@ async function saveToLocalFile(embeddings) {
     console.log("[EmbeddingStorage] Saving embeddings to local file...");
     const jsonContent = JSON.stringify(embeddings, null, 2);
 
+    // Ensure directory exists
+    const dirPath = path.dirname(LOCAL_EMBEDDINGS_FILE);
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+
     fs.writeFileSync(LOCAL_EMBEDDINGS_FILE, jsonContent, "utf-8");
 
     cachedEmbeddings = embeddings;
@@ -159,6 +171,12 @@ async function saveToLocalFile(embeddings) {
     return true;
   } catch (error) {
     console.error("[EmbeddingStorage] Local file save failed:", error.message);
+    // On Vercel without Blob token, this will fail - that's expected
+    // Embeddings are in the database, will be used on next request
+    if (isProduction && !useBlob) {
+      console.warn("[EmbeddingStorage] NOTE: Running on Vercel without BLOB_READ_WRITE_TOKEN. " +
+        "Embeddings stored in database will be used. Set BLOB_READ_WRITE_TOKEN for better performance.");
+    }
     return false;
   }
 }
@@ -170,6 +188,16 @@ export function invalidateCache() {
   cachedEmbeddings = null;
   lastLoadTime = 0;
   console.log("[EmbeddingStorage] Cache invalidated");
+}
+
+/**
+ * Reload embeddings from storage (called after save to refresh cache)
+ */
+export async function reloadFromStorage() {
+  console.log("[EmbeddingStorage] Reloading embeddings from storage...");
+  cachedEmbeddings = null;
+  lastLoadTime = 0;
+  return await loadEmbeddingsFromStorage();
 }
 
 /**

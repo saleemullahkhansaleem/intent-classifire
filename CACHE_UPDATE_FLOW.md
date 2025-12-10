@@ -163,7 +163,7 @@ Event: Any endpoint called
 Check:
   - Cache age = 1800s
   - Is 1800s > 30min (1800s)? YES, cache expired
-  
+
 Action:
   1. loadEmbeddingsFromStorage()
   2. Load fresh from Blob
@@ -181,7 +181,7 @@ Cache Status: REFRESHED AGAIN
 ```javascript
 if (!wasTimeout && !wasLimited) {
   await reloadEmbeddings();  // ← Load from DB into cache
-  
+
   // Save to storage
   await saveEmbeddings(freshEmbeddings);
   invalidateCache();  // ← Only clears Layer 1!
@@ -195,7 +195,7 @@ if (!wasTimeout && !wasLimited) {
   // Save to storage
   await saveEmbeddings(freshEmbeddings);
   invalidateCache();  // ← Clears Layer 1
-  
+
   // Force reload to update Layer 2 (embeddings variable)
   await reloadEmbeddings();  // ← NEW! Loads fresh from Blob
 }
@@ -251,7 +251,7 @@ curl -X POST http://vercel-url/api/classify \
 
 **The Solution**: After `invalidateCache()`, call `reloadEmbeddings()` to load the fresh embeddings from Blob into the server's memory.
 
-**Impact**: 
+**Impact**:
 - ✅ New examples immediately available for classification
 - ✅ No more unexpected GPT fallbacks
 - ✅ Vector file always in sync with classification results

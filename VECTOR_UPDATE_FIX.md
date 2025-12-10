@@ -11,7 +11,7 @@ ADD EXAMPLE → RECOMPUTE → CLASSIFY WITH SAME PROMPT → GPT FALLBACK ❌
 The vector file (embeddings) has **3 layers of caching**:
 
 1. **Blob Storage** (Layer 3) - Updated ✅
-2. **Cache in blobService** (Layer 1) - Cleared ✅  
+2. **Cache in blobService** (Layer 1) - Cleared ✅
 3. **embeddings variable in classifier** (Layer 2) - **NOT updated** ❌
 
 When you classified, the server used stale Layer 2 data, didn't find a match, and fell back to GPT.

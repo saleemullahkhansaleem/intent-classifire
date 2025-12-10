@@ -73,7 +73,7 @@ Flow:
              │ Saved by: await saveEmbeddings(freshEmbeddings)
              │
   [4] invalidateCache() → Clear Layer 1
-  
+
 ┌────────────────────────────────────────────────────────────────────┐
 │                        SERVER MEMORY                               │
 ├────────────────────────────────────────────────────────────────────┤

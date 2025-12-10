@@ -17,10 +17,10 @@ Your system has **3 layers of embeddings storage**:
 LAYER 1: In-Memory Cache (blobService.js)
          └─ Cleared every 30 minutes or after recompute
 
-LAYER 2: embeddings Variable (classifier.js) 
+LAYER 2: embeddings Variable (classifier.js)
          └─ Used for ALL classifications
 
-LAYER 3: Blob Storage (Vercel) 
+LAYER 3: Blob Storage (Vercel)
          └─ Persistent source of truth
 ```
 
@@ -58,7 +58,7 @@ LAYER 3: Blob Storage (Vercel)
 ```javascript
 if (!wasTimeout && !wasLimited) {
   await reloadEmbeddings();  // ← Too early, before save
-  
+
   // Save to Blob
   await saveEmbeddings(freshEmbeddings);
   invalidateCache();  // ← Only clears LAYER 1
@@ -72,7 +72,7 @@ if (!wasTimeout && !wasLimited) {
   // Save to Blob first
   await saveEmbeddings(freshEmbeddings);
   invalidateCache();  // ← Clear LAYER 1
-  
+
   // Then reload to update LAYER 2
   console.log("[Recompute] Forcing embeddings reload after save...");
   await reloadEmbeddings();  // ← Now all 3 layers in sync!
@@ -269,7 +269,7 @@ A: During `/api/recompute` - it's saved to Vercel Blob storage
 A: Every time `/api/recompute` is called with new examples
 
 **Q: When is the vector file loaded into memory?**
-A: 
+A:
 - Server startup
 - After recompute (NEW FIX - immediate reload)
 - Every 30 minutes (cache refresh)

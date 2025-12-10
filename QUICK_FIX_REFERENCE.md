@@ -195,7 +195,7 @@ git push origin main
 ## More Info
 
 - **Detailed Explanation**: CACHE_LAYERS_EXPLAINED.md
-- **Complete Timeline**: CACHE_UPDATE_FLOW.md  
+- **Complete Timeline**: CACHE_UPDATE_FLOW.md
 - **Deployment Steps**: DEPLOYMENT_CHECKLIST.md
 - **Full Summary**: VECTOR_SYNC_FIX_SUMMARY.md
 
