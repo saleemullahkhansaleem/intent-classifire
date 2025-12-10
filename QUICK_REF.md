@@ -15,7 +15,7 @@ console.log(`
 1. Fixed Performance Issue
    Before: classifyText() reloaded embeddings from DB every request (5-8s)
    After:  classifyText() uses in-memory cache (1-2s)
-   
+
    The bug was: shouldReload was always true on Vercel
    The fix: Only reload when cache empty or force env var set
 
@@ -64,7 +64,7 @@ EMBEDDINGS_FORCE_RELOAD=1 npm run dev
 
 3. After deployment:
    curl -X POST https://<your-domain>/api/recompute
-   
+
    This populates the Blob storage with embeddings
 
 4. Monitor logs:

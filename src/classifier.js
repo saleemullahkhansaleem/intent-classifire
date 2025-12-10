@@ -51,8 +51,7 @@ export async function initClassifier({ openaiApiKey } = {}) {
         categoryThresholds[categoryName] = 0.4;
       }
       console.log(
-        `✅ Embeddings loaded from storage (${
-          Object.keys(embeddings).length
+        `✅ Embeddings loaded from storage (${Object.keys(embeddings).length
         } categories)`
       );
     } else {
@@ -81,8 +80,7 @@ export async function initClassifier({ openaiApiKey } = {}) {
         }
         useDatabase = true;
         console.log(
-          `✅ Embeddings loaded from database (${
-            Object.keys(embeddings).length
+          `✅ Embeddings loaded from database (${Object.keys(embeddings).length
           } categories)`
         );
         // Log embedding counts per category
@@ -321,8 +319,7 @@ export async function reloadEmbeddings() {
       const categories = await getAllCategories();
 
       console.log(
-        `[Reload] Found ${
-          Object.keys(dbEmbeddings).length
+        `[Reload] Found ${Object.keys(dbEmbeddings).length
         } categories with embeddings in database`
       );
 
@@ -334,8 +331,7 @@ export async function reloadEmbeddings() {
         }
         useDatabase = true;
         console.log(
-          `✅ Embeddings reloaded from database (${
-            Object.keys(embeddings).length
+          `✅ Embeddings reloaded from database (${Object.keys(embeddings).length
           } categories, ${Object.values(embeddings).reduce(
             (sum, exs) => sum + exs.length,
             0
@@ -399,8 +395,7 @@ export async function classifyText(
         console.log("[Classify] Reloading embeddings from database...");
         await reloadEmbeddings();
         console.log(
-          `[Classify] Embeddings reloaded: ${
-            Object.keys(embeddings).length
+          `[Classify] Embeddings reloaded: ${Object.keys(embeddings).length
           } categories`
         );
       } catch (err) {
@@ -430,13 +425,11 @@ export async function classifyText(
     // Debug logging
     console.log(`[Classify] Text: "${text.substring(0, 50)}..."`);
     console.log(
-      `[Classify] Best match: ${
-        best.label || "none"
+      `[Classify] Best match: ${best.label || "none"
       } (score: ${best.score.toFixed(4)}, threshold: ${threshold})`
     );
     console.log(
-      `[Classify] Embeddings loaded: ${
-        Object.keys(embeddings).length
+      `[Classify] Embeddings loaded: ${Object.keys(embeddings).length
       } categories`
     );
 

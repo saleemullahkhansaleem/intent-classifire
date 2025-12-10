@@ -25,7 +25,7 @@ const CACHE_DURATION = 30 * 60 * 1000; // Cache for 30 minutes
 export async function loadEmbeddingsFromStorage() {
   try {
     const now = Date.now();
-    
+
     // Return cached if valid
     if (cachedEmbeddings && (now - lastLoadTime) < CACHE_DURATION) {
       const source = useBlob ? "Blob" : "local file";
@@ -50,7 +50,7 @@ export async function loadEmbeddingsFromStorage() {
 async function loadFromBlob() {
   try {
     console.log("[EmbeddingStorage] Loading embeddings from Vercel Blob...");
-    
+
     // Check if blob exists
     const blobInfo = await head(EMBEDDINGS_BLOB_PATH).catch(() => null);
     if (!blobInfo) {
@@ -62,10 +62,10 @@ async function loadFromBlob() {
     const { downloadUrl } = await getDownloadUrl(EMBEDDINGS_BLOB_PATH);
     const response = await fetch(downloadUrl);
     const text = await response.text();
-    
+
     cachedEmbeddings = JSON.parse(text);
     lastLoadTime = Date.now();
-    
+
     console.log(`[EmbeddingStorage] Loaded from Blob: ${Object.keys(cachedEmbeddings).length} categories`);
     return cachedEmbeddings;
   } catch (error) {
@@ -80,7 +80,7 @@ async function loadFromBlob() {
 async function loadFromLocalFile() {
   try {
     console.log("[EmbeddingStorage] Loading embeddings from local file...");
-    
+
     if (!fs.existsSync(LOCAL_EMBEDDINGS_FILE)) {
       console.warn("[EmbeddingStorage] No local embeddings file found");
       return null;
@@ -89,7 +89,7 @@ async function loadFromLocalFile() {
     const content = fs.readFileSync(LOCAL_EMBEDDINGS_FILE, "utf-8");
     cachedEmbeddings = JSON.parse(content);
     lastLoadTime = Date.now();
-    
+
     console.log(`[EmbeddingStorage] Loaded from local: ${Object.keys(cachedEmbeddings).length} categories`);
     return cachedEmbeddings;
   } catch (error) {
@@ -125,7 +125,7 @@ async function saveToBlob(embeddings) {
   try {
     console.log("[EmbeddingStorage] Saving embeddings to Vercel Blob...");
     const jsonContent = JSON.stringify(embeddings, null, 2);
-    
+
     await put(EMBEDDINGS_BLOB_PATH, jsonContent, {
       contentType: "application/json",
       access: "private",
@@ -133,7 +133,7 @@ async function saveToBlob(embeddings) {
 
     cachedEmbeddings = embeddings;
     lastLoadTime = Date.now();
-    
+
     console.log("[EmbeddingStorage] Saved to Blob successfully");
     return true;
   } catch (error) {
@@ -149,12 +149,12 @@ async function saveToLocalFile(embeddings) {
   try {
     console.log("[EmbeddingStorage] Saving embeddings to local file...");
     const jsonContent = JSON.stringify(embeddings, null, 2);
-    
+
     fs.writeFileSync(LOCAL_EMBEDDINGS_FILE, jsonContent, "utf-8");
-    
+
     cachedEmbeddings = embeddings;
     lastLoadTime = Date.now();
-    
+
     console.log("[EmbeddingStorage] Saved to local file successfully");
     return true;
   } catch (error) {

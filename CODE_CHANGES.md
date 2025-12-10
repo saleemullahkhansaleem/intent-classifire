@@ -75,7 +75,7 @@
     alreadyComputed: 0,
     failed: 0
   };
-  
+
   // ... track totals ...
   categoryStats[category.name].total = allExamples.length;
   categoryStats[category.name].alreadyComputed = alreadyComputed;

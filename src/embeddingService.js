@@ -152,7 +152,7 @@ async function recomputeEmbeddingsFromDatabase(
   let skippedExamples = 0;
   let alreadyComputedTotal = 0;
   const startTime = Date.now();
-  
+
   // Per-category stats
   const categoryStats = {};
 
@@ -184,7 +184,7 @@ async function recomputeEmbeddingsFromDatabase(
     }
 
     console.log(`Processing category: ${category.name} (ID: ${category.id})`);
-    
+
     // Initialize category stats
     categoryStats[category.name] = {
       name: category.name,
@@ -197,7 +197,7 @@ async function recomputeEmbeddingsFromDatabase(
     // Get all examples to count already-computed ones
     const allExamples = await getExamplesByCategoryId(category.id);
     categoryStats[category.name].total = allExamples.length;
-    
+
     // Only process uncomputed examples
     const examples = await getUncomputedExamplesByCategoryId(category.id);
     const alreadyComputed = allExamples.length - examples.length;

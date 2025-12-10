@@ -2,7 +2,7 @@
 
 /**
  * DEPLOYMENT GUIDE - Production Ready
- * 
+ *
  * This guide covers:
  * 1. Local testing (file-based embeddings)
  * 2. Vercel deployment (Blob-based embeddings)
@@ -81,15 +81,15 @@ console.log(`
 🌐 STEP 2: VERCEL DEPLOYMENT
 
 1. Set Vercel environment variables:
-   
+
    REQUIRED:
    - DATABASE_URL=<postgres connection string>
    - OPENAI_API_KEY=<your openai key>
-   
+
    OPTIONAL (for Blob storage - recommended):
    - BLOB_READ_WRITE_TOKEN=<vercel blob token>
      Get token: https://vercel.com/docs/storage/vercel-blob
-   
+
    OPTIONAL (for fallback embedding model):
    - EMBEDDING_MODEL=text-embedding-3-large (default)
    - FALLBACK_MODEL=gpt-4o-mini (default)
@@ -114,7 +114,7 @@ POST /api/recompute returns detailed stats:
 {
   "success": true,
   "message": "Embeddings computed successfully!...",
-  
+
   "categoryStats": {
     "support": {
       "name": "support",
@@ -126,14 +126,14 @@ POST /api/recompute returns detailed stats:
     "billing": {...},
     "feature_request": {...}
   },
-  
+
   "totalExamples": 250,       // Total newly computed across all
   "skippedExamples": 0,       // Failed to compute
   "alreadyComputed": 200,     // Already had embeddings
   "elapsedSeconds": "45.2",   // Total time taken
   "incomplete": false,        // Was it cut off by timeout/limit?
   "persisted": true,          // Were embeddings saved?
-  
+
   "consumption": {
     "tokens": {
       "input": 125000,
