@@ -16,6 +16,18 @@ export async function getExamplesByCategoryId(categoryId) {
 }
 
 /**
+ * Get only uncomputed examples (where embedding IS NULL) for a category
+ */
+export async function getUncomputedExamplesByCategoryId(categoryId) {
+  const db = getDb();
+  const result = await db.query(
+    "SELECT * FROM examples WHERE category_id = $1 AND embedding IS NULL ORDER BY created_at",
+    [categoryId]
+  );
+  return result.rows || result;
+}
+
+/**
  * Get example by ID
  */
 export async function getExampleById(id) {

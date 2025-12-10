@@ -259,9 +259,8 @@ export default function CategoryManager() {
 
       toast({
         title: "Success",
-        description: `Embeddings recomputed successfully! Processed ${
-          result.labelsProcessed || result.categoriesProcessed || 0
-        } categories with ${result.totalExamples || 0} examples.`,
+        description: `Embeddings recomputed successfully! Processed ${result.labelsProcessed || result.categoriesProcessed || 0
+          } categories with ${result.totalExamples || 0} examples.`,
         variant: "success",
       });
     } catch (error) {
@@ -299,17 +298,16 @@ export default function CategoryManager() {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
           errorData.details ||
-            errorData.error ||
-            "Failed to update global threshold"
+          errorData.error ||
+          "Failed to update global threshold"
         );
       }
 
       const result = await response.json();
       toast({
         title: "Success",
-        description: `Threshold set to ${thresholdValue.toFixed(2)} for all ${
-          result.count
-        } categories`,
+        description: `Threshold set to ${thresholdValue.toFixed(2)} for all ${result.count
+          } categories`,
         variant: "success",
       });
       setGlobalThresholdDialogOpen(false);
@@ -401,13 +399,27 @@ export default function CategoryManager() {
           <button
             key={category.id}
             onClick={() => handleCategorySelect(category.id)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
-              selectedCategoryId === category.id
+            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2 ${selectedCategoryId === category.id
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-foreground hover:bg-muted/80"
-            }`}
+              }`}
           >
-            {category.name} ({category.examplesCount || 0})
+            <div className="flex items-center gap-2">
+              <span>{category.name} ({category.examplesCount || 0})</span>
+
+              {/* Status badge */}
+              {category.completionPercentage !== undefined && (
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold whitespace-nowrap ${category.completionPercentage === 100
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                    : category.completionPercentage === 0
+                      ? 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                      : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                  }`}>
+                  {category.completionPercentage}%
+                </span>
+              )}
+            </div>
+
             {category.threshold !== undefined && (
               <span className="ml-2 text-xs opacity-75">
                 [t:{category.threshold.toFixed(2)}]

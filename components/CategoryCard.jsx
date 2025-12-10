@@ -149,42 +149,67 @@ export default function CategoryCard({ category, onUpdate, onDelete }) {
             </div>
           </div>
         ) : (
-          <div className="space-y-2">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h3 className="text-2xl font-semibold text-foreground capitalize">
-                  {category.name}
-                </h3>
-                {category.description && (
-                  <p className="text-muted-foreground mt-1">
-                    {category.description}
-                  </p>
-                )}
-                <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                  <span>
-                    {category.examplesCount || 0} example
-                    {(category.examplesCount || 0) !== 1 ? "s" : ""}
-                  </span>
-                  <span>
-                    Threshold: {category.threshold?.toFixed(2) || "0.40"}
-                  </span>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h3 className="text-2xl font-semibold text-foreground capitalize">
+                    {category.name}
+                  </h3>
+                  {category.description && (
+                    <p className="text-muted-foreground mt-1">
+                      {category.description}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                    <span>
+                      {category.examplesCount || 0} example
+                      {(category.examplesCount || 0) !== 1 ? "s" : ""}
+                    </span>
+                    <span>
+                      Threshold: {category.threshold?.toFixed(2) || "0.40"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={onDelete}
+                    className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setEditing(true)}
-                  className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={onDelete}
-                  className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
             </div>
+
+            {/* Embedding Status Progress Bar */}
+            {category.examplesCount > 0 && category.completionPercentage !== undefined && (
+              <div className="p-4 bg-muted/20 rounded-lg">
+                <div className="flex justify-between mb-2">
+                  <span className="text-sm font-medium text-foreground">Embedding Status</span>
+                  <span className="text-sm text-muted-foreground">
+                    {category.computedCount || 0} of {category.examplesCount || 0} computed
+                  </span>
+                </div>
+                <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all ${category.completionPercentage === 100
+                        ? 'bg-green-500'
+                        : category.completionPercentage === 0
+                          ? 'bg-gray-400'
+                          : 'bg-yellow-500'
+                      }`}
+                    style={{ width: `${category.completionPercentage || 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

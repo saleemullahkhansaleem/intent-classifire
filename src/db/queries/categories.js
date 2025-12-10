@@ -117,3 +117,90 @@ export async function updateAllCategoriesThreshold(threshold) {
   );
   return result.rows || result;
 }
+
+/**
+ * Get category with embedding status (counts of computed/uncomputed examples)
+ */
+export async function getCategoryWithEmbeddingStatus(categoryId) {
+  const db = getDb();
+
+  // Get category info
+  const categoryResult = await db.query(
+    "SELECT * FROM categories WHERE id = $1",
+    [categoryId]
+  );
+  const category = categoryResult.rows?.[0] || categoryResult[0];
+
+  if (!category) return null;
+
+  // Get example counts
+  const countsResult = await db.query(
+    `SELECT
+      COUNT(*) as total,
+      COUNT(CASE WHEN embedding IS NOT NULL THEN 1 END) as computed,
+      COUNT(CASE WHEN embedding IS NULL THEN 1 END) as uncomputed
+     FROM examples WHERE category_id = $1`,
+    [categoryId]
+  );
+  const counts = countsResult.rows?.[0] || countsResult[0];
+
+  // Handle both lowercase and uppercase column names
+  const total = parseInt(counts.total || counts.TOTAL || 0) || 0;
+  const computed = parseInt(counts.computed || counts.COMPUTED || 0) || 0;
+  const uncomputed = parseInt(counts.uncomputed || counts.UNCOMPUTED || 0) || 0;
+  const completionPercentage = total === 0 ? 0 : Math.round((computed / total) * 100);
+
+  return {
+    ...category,
+    examplesCount: total,
+    computedCount: computed,
+    uncomputedCount: uncomputed,
+    completionPercentage
+  };
+}
+
+/**
+ * Get all categories with embedding status
+ */
+export async function getAllCategoriesWithStatus() {
+  const db = getDb();
+
+  const result = await db.query(
+    `SELECT
+      c.id,
+      c.name,
+      c.description,
+      c.threshold,
+      c.created_at,
+      c.updated_at,
+      COUNT(e.id) as examplesCount,
+      COUNT(CASE WHEN e.embedding IS NOT NULL THEN 1 END) as computedCount,
+      COUNT(CASE WHEN e.embedding IS NULL THEN 1 END) as uncomputedCount
+     FROM categories c
+     LEFT JOIN examples e ON c.id = e.category_id
+     GROUP BY c.id, c.name, c.description, c.threshold, c.created_at, c.updated_at
+     ORDER BY c.name`
+  );
+
+  const rows = result.rows || result;
+  return rows.map(row => {
+    // Handle both lowercase and uppercase column names from different databases
+    const examplesCount = parseInt(row.examplesCount || row.examplescount || 0) || 0;
+    const computedCount = parseInt(row.computedCount || row.computedcount || 0) || 0;
+    const completionPercentage = examplesCount === 0 ? 0 : Math.round((computedCount / examplesCount) * 100);
+
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      threshold: row.threshold,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      examplesCount,
+      computedCount,
+      uncomputedCount: parseInt(row.uncomputedCount || row.uncomputedcount || 0) || 0,
+      completionPercentage
+    };
+  });
+}
+

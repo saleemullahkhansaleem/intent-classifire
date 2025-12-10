@@ -194,9 +194,8 @@ export default function CategoryExampleList({ category, onUpdate }) {
       const result = await response.json();
       toast({
         title: "Success",
-        description: `Imported ${
-          result.count || lines.length
-        } examples successfully`,
+        description: `Imported ${result.count || lines.length
+          } examples successfully`,
         variant: "success",
       });
       setShowBulkImport(false);
@@ -341,6 +340,18 @@ export default function CategoryExampleList({ category, onUpdate }) {
               ) : (
                 <>
                   <span className="flex-1 text-foreground">{example.text}</span>
+
+                  {/* Embedding Status Badge */}
+                  {example.embedding ? (
+                    <span className="px-2 py-1 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 text-xs rounded whitespace-nowrap font-medium">
+                      ✓ Computed
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 text-xs rounded whitespace-nowrap font-medium">
+                      ⏳ Pending
+                    </span>
+                  )}
+
                   {!showBulkDelete && (
                     <div className="flex gap-2 ml-4">
                       <Button

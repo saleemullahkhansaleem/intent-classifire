@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   getCategoryById,
+  getCategoryWithEmbeddingStatus,
   updateCategory,
   deleteCategory,
 } from "@/src/db/queries/categories.js";
@@ -28,7 +29,7 @@ export async function GET(request, { params }) {
       );
     }
 
-    const category = await getCategoryById(categoryId);
+    const category = await getCategoryWithEmbeddingStatus(categoryId);
     if (!category) {
       return NextResponse.json(
         { error: "Category not found" },
@@ -39,7 +40,6 @@ export async function GET(request, { params }) {
     // Include examples with full objects (including IDs)
     const examples = await getExamplesByCategoryId(categoryId);
     category.examples = examples;
-    category.examplesCount = examples.length;
 
     return NextResponse.json(category);
   } catch (error) {

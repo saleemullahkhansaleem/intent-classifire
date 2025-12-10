@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   getAllCategories,
+  getAllCategoriesWithStatus,
   createCategory,
 } from "@/src/db/queries/categories.js";
 import { initDatabase } from "@/src/db/database.js";
@@ -17,32 +18,9 @@ async function ensureDbInitialized() {
 export async function GET() {
   try {
     await ensureDbInitialized();
-    const categories = await getAllCategories();
+    const categories = await getAllCategoriesWithStatus();
 
-    // Optimize: Get example counts with a single SQL query instead of multiple queries
-    const { getDb } = await import("@/src/db/database.js");
-    const db = getDb();
-
-    // Get counts for all categories in one query
-    const countsResult = await db.query(
-      `SELECT category_id, COUNT(*) as count
-       FROM examples
-       GROUP BY category_id`
-    );
-
-    const countsMap = {};
-    const rows = countsResult.rows || countsResult;
-    for (const row of rows) {
-      countsMap[row.category_id] = parseInt(row.count) || 0;
-    }
-
-    // Include examples count for each category
-    const categoriesWithCounts = categories.map((category) => ({
-      ...category,
-      examplesCount: countsMap[category.id] || 0,
-    }));
-
-    return NextResponse.json(categoriesWithCounts);
+    return NextResponse.json(categories);
   } catch (error) {
     console.error("Error fetching categories:", error);
     return NextResponse.json(

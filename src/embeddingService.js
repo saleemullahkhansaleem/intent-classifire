@@ -53,8 +53,7 @@ export async function recomputeEmbeddings() {
     process.env.DATABASE_URL;
 
   console.log(
-    `[Recompute] Environment: ${
-      isProduction ? "Production/Vercel" : "Local Development"
+    `[Recompute] Environment: ${isProduction ? "Production/Vercel" : "Local Development"
     }`
   );
 
@@ -150,6 +149,7 @@ async function recomputeEmbeddingsFromDatabase(
   let processedCategories = 0;
   let totalExamples = 0;
   let skippedExamples = 0;
+  let alreadyComputedTotal = 0;
   const startTime = Date.now();
 
   console.log("Starting embedding recomputation from database...");
@@ -164,6 +164,11 @@ async function recomputeEmbeddingsFromDatabase(
     throw new Error("OPENAI_API_KEY not set. Please set it in your .env file.");
   }
 
+  // Import getUncomputedExamplesByCategoryId to skip already-computed examples
+  const { getUncomputedExamplesByCategoryId } = await import(
+    "./db/queries/examples.js"
+  );
+
   for (const category of categories) {
     // Check timeout (leave 2 seconds buffer for response)
     const elapsed = (Date.now() - startTime) / 1000;
@@ -176,7 +181,16 @@ async function recomputeEmbeddingsFromDatabase(
 
     console.log(`Processing category: ${category.name} (ID: ${category.id})`);
 
-    const examples = await getExamplesByCategoryId(category.id);
+    // Get all examples to count already-computed ones
+    const allExamples = await getExamplesByCategoryId(category.id);
+    // Only process uncomputed examples
+    const examples = await getUncomputedExamplesByCategoryId(category.id);
+    const alreadyComputed = allExamples.length - examples.length;
+
+    if (alreadyComputed > 0) {
+      console.log(`Skipping ${alreadyComputed} already-computed examples for ${category.name}`);
+      alreadyComputedTotal += alreadyComputed;
+    }
 
     if (!examples || examples.length === 0) {
       console.warn(`No examples found for category: ${category.name}`);
@@ -253,13 +267,15 @@ async function recomputeEmbeddingsFromDatabase(
   // Calculate consumption costs
   const embeddingCost = (totalTokens / 1000) * 0.00013;
 
-  const message = wasTimeout
+  let message = wasTimeout
     ? `Processing stopped due to timeout. ${totalExamples} examples processed in ${elapsed.toFixed(
-        1
-      )}s. Please run again to process remaining examples.`
+      1
+    )}s. Please run again to process remaining examples.`
     : wasLimited
-    ? `Processing limited to ${maxExamples} examples. ${totalExamples} examples processed. Please run again to process remaining examples.`
-    : "Embeddings recomputed successfully from database";
+      ? `Processing limited to ${maxExamples} examples. ${totalExamples} examples processed. Please run again to process remaining examples.`
+      : alreadyComputedTotal > 0
+        ? `Embeddings computed successfully! Computed ${totalExamples} new examples (skipped ${alreadyComputedTotal} already-computed).`
+        : "Embeddings recomputed successfully from database";
 
   return {
     success: true,
@@ -267,6 +283,7 @@ async function recomputeEmbeddingsFromDatabase(
     labelsProcessed: processedCategories,
     totalExamples: totalExamples,
     skippedExamples: skippedExamples,
+    alreadyComputed: alreadyComputedTotal,
     elapsedSeconds: elapsed.toFixed(1),
     incomplete: wasTimeout || wasLimited,
     persisted: !wasTimeout && !wasLimited,
@@ -312,8 +329,7 @@ async function recomputeEmbeddingsFromJSON() {
   for (const label of labels) {
     embeddings[label.name] = [];
     console.log(
-      `Processing label: ${label.name} (${
-        label.examples?.length || 0
+      `Processing label: ${label.name} (${label.examples?.length || 0
       } examples)`
     );
 
@@ -347,8 +363,8 @@ async function recomputeEmbeddingsFromJSON() {
   if (isReadOnly) {
     console.warn(
       "⚠️  Running in read-only environment (Vercel). " +
-        "Embeddings cannot be saved to disk. " +
-        "They will be computed on-demand or you can precompute them during build."
+      "Embeddings cannot be saved to disk. " +
+      "They will be computed on-demand or you can precompute them during build."
     );
     const embeddingCost = (totalTokens / 1000) * 0.00013;
 
@@ -433,7 +449,7 @@ async function recomputeEmbeddingsFromJSON() {
     if (err.code === "EROFS") {
       console.warn(
         "⚠️  File system is read-only. Embeddings cannot be saved. " +
-          "They will be computed on-demand during classification."
+        "They will be computed on-demand during classification."
       );
       const embeddingCost = (totalTokens / 1000) * 0.00013;
 
