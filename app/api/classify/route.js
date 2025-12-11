@@ -21,7 +21,7 @@ export async function POST(request) {
   try {
     // Ensure embeddings are pre-loaded before processing
     await ensureClassifierInitialized();
-    
+
     const body = await request.json();
     const { prompt, prompts } = body;
 
