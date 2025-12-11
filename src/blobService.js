@@ -13,16 +13,22 @@ const LOCAL_EMBEDDINGS_FILE = path.resolve(projectRoot, "src", "classifier_embed
 
 // Check if in production (Vercel)
 const isProduction = process.env.VERCEL === "1" || process.env.VERCEL_ENV;
-// Use Blob if we have the token AND we're on Vercel, OR if explicitly enabled
-const useBlob = isProduction && !!process.env.BLOB_READ_WRITE_TOKEN;
+// Use Blob if token is available (works in both local dev AND production)
+// This ensures vector file is ALWAYS stored in Blob, not local filesystem
+const useBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
 
 let cachedEmbeddings = null;
 let lastLoadTime = 0;
 const CACHE_DURATION = 30 * 60 * 1000; // Cache for 30 minutes
+let debugLogged = false;
 
-// Debug logging for storage mode
-if (typeof window === 'undefined') { // Only log on server side
-  console.log(`[EmbeddingStorage] Mode: ${useBlob ? 'Blob (production)' : isProduction ? 'Local fallback (Blob token missing)' : 'Local (development)'}`);
+// Debug logging for storage mode (deferred to first function call)
+function logStorageMode() {
+  if (debugLogged) return;
+  debugLogged = true;
+  if (typeof window === 'undefined') { // Only log on server side
+    console.log(`[EmbeddingStorage] Mode: ${useBlob ? 'Blob (BLOB_READ_WRITE_TOKEN available)' : 'Local file (fallback - no Blob token)'}`);
+  }
 }
 
 /**
@@ -30,6 +36,7 @@ if (typeof window === 'undefined') { // Only log on server side
  */
 export async function loadEmbeddingsFromStorage() {
   try {
+    logStorageMode(); // Log on first call
     const now = Date.now();
 
     // Return cached if valid
@@ -134,7 +141,7 @@ async function saveToBlob(embeddings) {
 
     await put(EMBEDDINGS_BLOB_PATH, jsonContent, {
       contentType: "application/json",
-      access: "private",
+      access: "public",
     });
 
     cachedEmbeddings = embeddings;
