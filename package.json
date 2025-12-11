@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/ensure-embeddings.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -15,7 +14,6 @@
     "@radix-ui/react-toast": "^1.2.0",
     "@vercel/blob": "^2.0.0",
     "@vercel/postgres": "^0.10.0",
-    "better-sqlite3": "^12.5.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "dotenv": "^16.6.1",

@@ -239,22 +239,32 @@ Request: """${text}"""
 `;
 
     const fallbackModel = process.env.FALLBACK_MODEL || "gpt-4o-mini";
+    console.log(`[GPT Fallback] Calling ${fallbackModel} model...`);
+    const startTime = Date.now();
+    
     const res = await client.chat.completions.create({
       model: fallbackModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
     });
 
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     const content = res.choices?.[0]?.message?.content?.trim();
-    if (!content) return null;
-
-    // Extract token usage
+    
+    // Extract token usage and log response details
     const usage = res.usage || {};
     const tokens = {
       input: usage.prompt_tokens || 0,
       output: usage.completion_tokens || 0,
       total: usage.total_tokens || 0,
     };
+    
+    console.log(`[GPT Fallback] Response received in ${duration}s`);
+    console.log(`  Model: ${fallbackModel}`);
+    console.log(`  Response: "${content?.substring(0, 100)}..."`);
+    console.log(`  Tokens - Input: ${tokens.input}, Output: ${tokens.output}, Total: ${tokens.total}`);
+    
+    if (!content) return null;
 
     // Validate against database categories
     let validCategories = [];
@@ -520,6 +530,14 @@ async function classifyWithFallback(
       consumption.cost.embeddings = embeddingCost;
       consumption.cost.gpt = gptCost;
       consumption.cost.total = embeddingCost + gptCost;
+
+      // Log cost breakdown to console
+      console.log(`[Classify] ⚠️ FALLBACK USED - Cost Breakdown:`);
+      console.log(`  Embedding cost: $${embeddingCost.toFixed(6)} (${embeddingTokens} tokens @ $0.00013/1K)`);
+      console.log(`  GPT cost: $${gptCost.toFixed(6)}`);
+      console.log(`    - Input: $${gptInputCost.toFixed(6)} (${gptResult.tokens?.input} tokens @ $0.15/1M)`);
+      console.log(`    - Output: $${gptOutputCost.toFixed(6)} (${gptResult.tokens?.output} tokens @ $0.6/1M)`);
+      console.log(`  Total cost: $${consumption.cost.total.toFixed(6)}`);
 
       return {
         prompt: text,
