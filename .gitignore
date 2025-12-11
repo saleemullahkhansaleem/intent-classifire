@@ -61,3 +61,4 @@ logs
 # Uncomment if you want to ignore embeddings
 # src/classifier_embeddings.json
 
+src/classifier_embeddings.json
