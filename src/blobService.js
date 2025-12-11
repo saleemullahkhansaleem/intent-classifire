@@ -3,7 +3,7 @@
 // Production: Uses Blob storage
 // Development: Also uses Blob if token available, otherwise fails gracefully
 
-import { put, head, getDownloadUrl } from "@vercel/blob";
+import { put, head } from "@vercel/blob";
 
 const EMBEDDINGS_BLOB_PATH = "intent-classifire-blob/classifier-embeddings.json";
 
@@ -63,26 +63,92 @@ async function loadFromBlob() {
     }
 
     console.log("[EmbeddingStorage] Loading embeddings from Vercel Blob...");
+    console.log(`[EmbeddingStorage] Blob path: ${EMBEDDINGS_BLOB_PATH}`);
 
-    // Check if blob exists
-    const blobInfo = await head(EMBEDDINGS_BLOB_PATH).catch(() => null);
-    if (!blobInfo) {
-      console.warn("[EmbeddingStorage] No embeddings blob found");
+    // Step 1: Check if blob exists
+    let blobInfo = null;
+    try {
+      blobInfo = await head(EMBEDDINGS_BLOB_PATH);
+      console.log(`[EmbeddingStorage] Blob exists, info:`, {
+        size: blobInfo.size,
+        uploadedAt: blobInfo.uploadedAt,
+        hasDownloadUrl: !!blobInfo.downloadUrl,
+        hasUrl: !!blobInfo.url,
+      });
+    } catch (headError) {
+      console.warn(`[EmbeddingStorage] Blob not found (head check):`, headError.message);
       return null;
     }
 
-    // Get download URL and fetch content
-    const { downloadUrl } = await getDownloadUrl(EMBEDDINGS_BLOB_PATH);
+    // Step 2: Get download URL from blob info or construct it
+    let downloadUrl = null;
+
+    // Try blobInfo.downloadUrl first (primary method from head())
+    if (blobInfo && blobInfo.downloadUrl) {
+      downloadUrl = blobInfo.downloadUrl;
+      console.log(`[EmbeddingStorage] Using downloadUrl from head() response`);
+    }
+    // Fallback: try blobInfo.url (alternative property name)
+    else if (blobInfo && blobInfo.url) {
+      downloadUrl = blobInfo.url;
+      console.log(`[EmbeddingStorage] Using url from head() response`);
+    }
+    // Last resort: construct URL from blob path
+    // Vercel Blob URLs typically follow pattern: https://blob.vercelusercontent.com/...
+    else {
+      console.warn(`[EmbeddingStorage] No URL in blob info, trying to construct URL`);
+      return null;
+    }
+
+    if (!downloadUrl) {
+      console.error("[EmbeddingStorage] Could not determine download URL", { blobInfo });
+      return null;
+    }
+
+    console.log(`[EmbeddingStorage] Fetching from: ${downloadUrl.substring(0, 100)}...`);
+
+    // Step 3: Fetch the blob content
     const response = await fetch(downloadUrl);
+    
+    if (!response.ok) {
+      console.error(
+        `[EmbeddingStorage] Fetch failed with status ${response.status}: ${response.statusText}`,
+        `URL: ${downloadUrl.substring(0, 100)}...`
+      );
+      return null;
+    }
+
     const text = await response.text();
 
-    cachedEmbeddings = JSON.parse(text);
+    if (!text || text.length === 0) {
+      console.warn("[EmbeddingStorage] Blob content is empty");
+      return null;
+    }
+
+    // Step 4: Parse JSON
+    try {
+      cachedEmbeddings = JSON.parse(text);
+    } catch (parseError) {
+      console.error("[EmbeddingStorage] Failed to parse JSON from blob:", parseError.message);
+      console.error("[EmbeddingStorage] First 200 chars:", text.substring(0, 200));
+      return null;
+    }
+
     lastLoadTime = Date.now();
 
-    console.log(`[EmbeddingStorage] Loaded from Blob: ${Object.keys(cachedEmbeddings).length} categories`);
+    const categoryCount = Object.keys(cachedEmbeddings).length;
+    const totalEmbeddings = Object.values(cachedEmbeddings).reduce(
+      (sum, examples) => sum + (Array.isArray(examples) ? examples.length : 0),
+      0
+    );
+
+    console.log(`[EmbeddingStorage] ✅ Loaded from Blob: ${categoryCount} categories, ${totalEmbeddings} embeddings`);
     return cachedEmbeddings;
   } catch (error) {
     console.error("[EmbeddingStorage] Blob load failed:", error.message);
+    if (error.stack) {
+      console.error("[EmbeddingStorage] Stack trace:", error.stack);
+    }
     return null;
   }
 }
@@ -101,21 +167,40 @@ export async function saveEmbeddings(embeddings) {
       return false;
     }
 
-    console.log("[EmbeddingStorage] Saving embeddings to Vercel Blob...");
-    const jsonContent = JSON.stringify(embeddings, null, 2);
+    const categoryCount = Object.keys(embeddings).length;
+    const totalEmbeddings = Object.values(embeddings).reduce(
+      (sum, examples) => sum + (Array.isArray(examples) ? examples.length : 0),
+      0
+    );
 
-    await put(EMBEDDINGS_BLOB_PATH, jsonContent, {
+    console.log(`[EmbeddingStorage] Saving embeddings to Vercel Blob...`);
+    console.log(`[EmbeddingStorage] Data: ${categoryCount} categories, ${totalEmbeddings} embeddings`);
+
+    const jsonContent = JSON.stringify(embeddings, null, 2);
+    const sizeInMB = (jsonContent.length / (1024 * 1024)).toFixed(2);
+    console.log(`[EmbeddingStorage] JSON size: ${sizeInMB} MB`);
+
+    const putResult = await put(EMBEDDINGS_BLOB_PATH, jsonContent, {
       contentType: "application/json",
       access: "public",
+    });
+
+    console.log(`[EmbeddingStorage] Put result:`, {
+      url: putResult.url ? putResult.url.substring(0, 100) + "..." : "N/A",
+      size: putResult.size,
+      uploadedAt: putResult.uploadedAt,
     });
 
     cachedEmbeddings = embeddings;
     lastLoadTime = Date.now();
 
-    console.log("[EmbeddingStorage] Saved to Blob successfully");
+    console.log(`[EmbeddingStorage] ✅ Saved to Blob successfully (${sizeInMB} MB)`);
     return true;
   } catch (error) {
     console.error("[EmbeddingStorage] Blob save failed:", error.message);
+    if (error.stack) {
+      console.error("[EmbeddingStorage] Stack trace:", error.stack);
+    }
     return false;
   }
 }
