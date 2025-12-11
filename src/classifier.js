@@ -311,7 +311,36 @@ Request: """${text}"""
 
 // Reload embeddings (useful after recomputation)
 export async function reloadEmbeddings() {
-  // Always try database first if POSTGRES_URL or VERCEL is available
+  console.log("[Reload] Starting embeddings reload...");
+  
+  // CRITICAL: Always invalidate Blob cache first to force fresh load
+  invalidateCache();
+  console.log("[Reload] Invalidated Blob cache to force fresh load");
+  
+  // Always try storage (Blob) first - this is fastest
+  try {
+    console.log("[Reload] Attempting to load from Blob storage...");
+    const storageEmbeddings = await reloadFromStorage();
+    if (storageEmbeddings && Object.keys(storageEmbeddings).length > 0) {
+      embeddings = storageEmbeddings;
+      categoryThresholds = {};
+      for (const categoryName of Object.keys(embeddings)) {
+        categoryThresholds[categoryName] = 0.4;
+      }
+      const totalExamples = Object.values(embeddings).reduce(
+        (sum, exs) => sum + (Array.isArray(exs) ? exs.length : 0),
+        0
+      );
+      console.log(
+        `✅ [Reload] Embeddings reloaded from Blob storage (${Object.keys(embeddings).length} categories, ${totalExamples} total examples)`
+      );
+      return;
+    }
+  } catch (err) {
+    console.warn("[Reload] Failed to load from Blob storage:", err.message);
+  }
+  
+  // Fallback to database
   const shouldUseDatabase =
     useDatabase ||
     process.env.POSTGRES_URL ||
@@ -320,6 +349,7 @@ export async function reloadEmbeddings() {
 
   if (shouldUseDatabase) {
     try {
+      console.log("[Reload] Attempting to load from database...");
       const { initDatabase } = await import("./db/database.js");
       const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
       const { getAllCategories } = await import("./db/queries/categories.js");
@@ -328,11 +358,6 @@ export async function reloadEmbeddings() {
       const dbEmbeddings = await getAllEmbeddings();
       const categories = await getAllCategories();
 
-      console.log(
-        `[Reload] Found ${Object.keys(dbEmbeddings).length
-        } categories with embeddings in database`
-      );
-
       if (Object.keys(dbEmbeddings).length > 0) {
         embeddings = dbEmbeddings;
         categoryThresholds = {};
@@ -340,29 +365,17 @@ export async function reloadEmbeddings() {
           categoryThresholds[category.name] = category.threshold || 0.4;
         }
         useDatabase = true;
+        const totalExamples = Object.values(dbEmbeddings).reduce(
+          (sum, exs) => sum + (Array.isArray(exs) ? exs.length : 0),
+          0
+        );
         console.log(
-          `✅ Embeddings reloaded from database (${Object.keys(embeddings).length
-          } categories, ${Object.values(embeddings).reduce(
-            (sum, exs) => sum + exs.length,
-            0
-          )} total examples)`
+          `✅ [Reload] Embeddings reloaded from database (${Object.keys(embeddings).length} categories, ${totalExamples} total examples)`
         );
         return;
-      } else {
-        console.warn(
-          "[Reload] Database has no embeddings. Make sure embeddings are recomputed and stored."
-        );
       }
     } catch (err) {
-      console.error(
-        "[Reload] Failed to reload embeddings from database:",
-        err.message
-      );
-      console.error("[Reload] Error details:", {
-        hasPostgresUrl: !!process.env.POSTGRES_URL,
-        isVercel: process.env.VERCEL === "1",
-        error: err.message,
-      });
+      console.error("[Reload] Failed to reload from database:", err.message);
     }
   }
 
@@ -582,3 +595,10 @@ async function classifyWithFallback(
 
 // Re-export storage functions for use in other modules
 export { saveEmbeddings, invalidateCache, getCachedEmbeddings, reloadFromStorage };
+
+// Export a function to clear classifier's in-memory embeddings
+export function clearClassifierCache() {
+  console.log("[Classifier] Clearing in-memory embeddings cache");
+  embeddings = {};
+  categoryThresholds = {};
+}

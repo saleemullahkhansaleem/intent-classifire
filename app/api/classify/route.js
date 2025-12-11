@@ -8,14 +8,20 @@ let classifierInitialized = false;
 
 async function ensureClassifierInitialized() {
   if (!classifierInitialized) {
+    console.log("[Classify Route] Initializing classifier at startup...");
+    const startTime = Date.now();
     await initClassifier({ openaiApiKey: OPENAI_API_KEY });
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[Classify Route] ✅ Classifier initialized in ${elapsed}s (embeddings pre-loaded)`);
     classifierInitialized = true;
   }
 }
 
 export async function POST(request) {
   try {
+    // Ensure embeddings are pre-loaded before processing
     await ensureClassifierInitialized();
+    
     const body = await request.json();
     const { prompt, prompts } = body;
 

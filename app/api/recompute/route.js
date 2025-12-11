@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { recomputeEmbeddings } from "@/src/embeddingService.js";
+import { reloadEmbeddings, clearClassifierCache } from "@/src/classifier.js";
 
 // Increase timeout for this route (Vercel has 10s limit on Hobby, 60s on Pro)
 export const maxDuration = 60;
@@ -12,6 +13,18 @@ export async function POST(request) {
     console.log("Starting embedding recomputation request...", { batch });
     const result = await recomputeEmbeddings();
     console.log("Recomputation completed:", result);
+
+    // After successful recomputation, refresh the classifier's in-memory embeddings
+    try {
+      console.log("[Recompute] Refreshing classifier cache after recomputation...");
+      clearClassifierCache();
+      console.log("[Recompute] Cleared in-memory cache");
+      await reloadEmbeddings();
+      console.log("[Recompute] ✅ Classifier cache refreshed with new embeddings");
+    } catch (refreshErr) {
+      console.warn("[Recompute] Warning: Failed to refresh classifier cache:", refreshErr.message);
+      // Don't fail the request, just warn
+    }
 
     // Handle incomplete processing (timeout or limit reached)
     if (result.incomplete) {
