@@ -1,19 +1,111 @@
-// src/classifier.js
+// src/classifier.js (UPDATED with local embedding support)
 import OpenAI from "openai";
-import { loadEmbeddingsFromStorage, saveEmbeddings, invalidateCache, getCachedEmbeddings, reloadFromStorage } from "./blobService.js";
+import {
+  loadEmbeddingsFromStorage,
+  saveEmbeddings,
+  invalidateCache,
+  getCachedEmbeddings,
+  reloadFromStorage,
+} from "./blobService.js";
+
+const EMBEDDING_SERVICE_URL =
+  process.env.EMBEDDING_SERVICE_URL || "http://localhost:3001";
+const USE_LOCAL_EMBEDDINGS = process.env.USE_LOCAL_EMBEDDINGS !== "false"; // Default: true
 
 // Global state
-let embeddings = {}; // { categoryName: [embedding1, embedding2, ...] }
-let categoryThresholds = {}; // { categoryName: 0.4, ... }
+let embeddings = {};
+let categoryThresholds = {};
 let embeddingClient;
+
+/**
+ * Get embedding using LOCAL service (FREE)
+ */
+async function getLocalEmbedding(text) {
+  try {
+    const response = await fetch(`${EMBEDDING_SERVICE_URL}/embed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Local embedding error: ${error.error}`);
+    }
+
+    const result = await response.json();
+    return {
+      embedding: result.embedding,
+      usage: { total_tokens: 0 }, // Local = free
+    };
+  } catch (err) {
+    console.error(`[Local Embedding] Failed:`, err.message);
+    throw err;
+  }
+}
+
+/**
+ * Get embedding using OpenAI API (COSTS MONEY)
+ */
+async function getOpenAIEmbedding(text, apiKey) {
+  if (!embeddingClient && !apiKey) {
+    throw new Error("No OpenAI API key available");
+  }
+
+  const client = apiKey ? new OpenAI({ apiKey }) : embeddingClient;
+  const model = process.env.EMBEDDING_MODEL || "text-embedding-3-large";
+
+  try {
+    const response = await client.embeddings.create({
+      model,
+      input: text,
+    });
+
+    return {
+      embedding: response.data[0].embedding,
+      usage: response.usage || { total_tokens: 0 },
+    };
+  } catch (err) {
+    console.error(`[OpenAI Embedding] Failed:`, err.message);
+    throw err;
+  }
+}
+
+/**
+ * Smart embedding function - tries local first, falls back to OpenAI
+ */
+async function getEmbedding(text, apiKey) {
+  if (USE_LOCAL_EMBEDDINGS) {
+    try {
+      console.log("[Classifier] Using local embedding (FREE)");
+      return await getLocalEmbedding(text);
+    } catch (err) {
+      console.warn(
+        "[Classifier] Local embedding failed, trying OpenAI:",
+        err.message
+      );
+      if (!embeddingClient && !apiKey) {
+        throw new Error("Local embedding failed and no OpenAI key available");
+      }
+      return await getOpenAIEmbedding(text, apiKey);
+    }
+  } else {
+    console.log("[Classifier] Using OpenAI embedding (costs money)");
+    return await getOpenAIEmbedding(text, apiKey);
+  }
+}
 
 /**
  * Initialize classifier - load embeddings once at startup
  */
 export async function initClassifier({ openaiApiKey } = {}) {
   console.log("[Classifier] Initializing...");
+  console.log(
+    `[Classifier] Embedding mode: ${
+      USE_LOCAL_EMBEDDINGS ? "LOCAL (FREE)" : "OpenAI (PAID)"
+    }`
+  );
 
-  // Initialize OpenAI clients
   if (openaiApiKey) {
     embeddingClient = new OpenAI({ apiKey: openaiApiKey });
   }
@@ -24,7 +116,6 @@ export async function initClassifier({ openaiApiKey } = {}) {
     embeddings = await loadEmbeddingsFromStorage();
 
     if (embeddings && Object.keys(embeddings).length > 0) {
-      // Set default thresholds for all categories
       for (const categoryName of Object.keys(embeddings)) {
         categoryThresholds[categoryName] = 0.4;
       }
@@ -33,7 +124,9 @@ export async function initClassifier({ openaiApiKey } = {}) {
         0
       );
       console.log(
-        `[Classifier] ✅ Loaded ${Object.keys(embeddings).length} categories, ${totalExamples} total embeddings from Blob`
+        `[Classifier] ✅ Loaded ${
+          Object.keys(embeddings).length
+        } categories, ${totalExamples} embeddings from Blob`
       );
       return;
     }
@@ -65,7 +158,9 @@ export async function initClassifier({ openaiApiKey } = {}) {
         0
       );
       console.log(
-        `[Classifier] ✅ Loaded ${Object.keys(embeddings).length} categories, ${totalExamples} total embeddings from database`
+        `[Classifier] ✅ Loaded ${
+          Object.keys(embeddings).length
+        } categories, ${totalExamples} embeddings from database`
       );
       return;
     }
@@ -73,30 +168,27 @@ export async function initClassifier({ openaiApiKey } = {}) {
     console.warn("[Classifier] Database load failed:", err.message);
   }
 
-  console.warn("[Classifier] ⚠️  No embeddings loaded. System will use GPT fallback for all classifications.");
+  console.warn("[Classifier] ⚠️ No embeddings loaded. Will use GPT fallback.");
   embeddings = {};
   categoryThresholds = {};
 }
 
 /**
- * Clear classifier cache (called after recompute)
+ * Clear classifier cache
  */
 export function clearClassifierCache() {
-  console.log("[Classifier] Clearing in-memory embeddings cache");
+  console.log("[Classifier] Clearing in-memory cache");
   embeddings = {};
   categoryThresholds = {};
 }
 
 /**
- * Reload embeddings from storage (called after recompute)
+ * Reload embeddings from storage
  */
 export async function reloadEmbeddings() {
   console.log("[Classifier] Reloading embeddings...");
 
-  // Clear memory cache
   clearClassifierCache();
-
-  // Invalidate Blob cache to force fresh load
   invalidateCache();
 
   // Load fresh from Blob
@@ -115,7 +207,9 @@ export async function reloadEmbeddings() {
         0
       );
       console.log(
-        `[Classifier] ✅ Reloaded ${Object.keys(embeddings).length} categories, ${totalExamples} examples from Blob`
+        `[Classifier] ✅ Reloaded ${
+          Object.keys(embeddings).length
+        } categories, ${totalExamples} examples from Blob`
       );
       return;
     }
@@ -146,40 +240,15 @@ export async function reloadEmbeddings() {
         0
       );
       console.log(
-        `[Classifier] ✅ Reloaded ${Object.keys(embeddings).length} categories, ${totalExamples} examples from database`
+        `[Classifier] ✅ Reloaded ${
+          Object.keys(embeddings).length
+        } categories, ${totalExamples} examples from database`
       );
       return;
     }
   } catch (err) {
     console.error("[Classifier] Failed to reload from database:", err.message);
-    console.warn("[Classifier] ⚠️  No embeddings loaded. Falling back to GPT for all classifications.");
-  }
-}
-
-/**
- * Get embedding vector for text using OpenAI API
- */
-async function getEmbedding(text, apiKey) {
-  if (!embeddingClient && !apiKey) {
-    throw new Error("No OpenAI API key available");
-  }
-
-  const client = apiKey ? new OpenAI({ apiKey }) : embeddingClient;
-  const model = process.env.EMBEDDING_MODEL || "text-embedding-3-large";
-
-  try {
-    const response = await client.embeddings.create({
-      model,
-      input: text,
-    });
-
-    return {
-      embedding: response.data[0].embedding,
-      usage: response.usage || { total_tokens: 0 },
-    };
-  } catch (err) {
-    console.error(`[Embedding] Failed to get embedding for "${text.substring(0, 50)}...":`, err.message);
-    throw err;
+    console.warn("[Classifier] ⚠️ No embeddings loaded. Falling back to GPT.");
   }
 }
 
@@ -214,7 +283,6 @@ function classifyEmbedding(inputEmbedding) {
     if (!Array.isArray(examples)) continue;
 
     for (const example of examples) {
-      // Handle both array and object formats
       const exampleVector = Array.isArray(example) ? example : example.vector;
       if (!Array.isArray(exampleVector)) continue;
 
@@ -248,12 +316,11 @@ async function gptFallbackClassify(text) {
     const categories = await getAllCategories();
 
     if (!categories || categories.length === 0) {
-      console.error("[GPT Fallback] No categories found in database");
+      console.error("[GPT Fallback] No categories found");
       return null;
     }
 
     const categoryList = categories.map((cat) => `- ${cat.name}`).join("\n");
-
     const prompt = `You are a classifier. Classify this request into one of these categories:
 ${categoryList}
 
@@ -288,10 +355,13 @@ Request: "${text}"`;
         };
       }
     } catch (e) {
-      // Try extracting label from text
       const firstLine = content.split("\n")[0].trim();
       if (categories.some((c) => c.name === firstLine)) {
-        return { label: firstLine, confidence: 0.5, tokens: response.usage || {} };
+        return {
+          label: firstLine,
+          confidence: 0.5,
+          tokens: response.usage || {},
+        };
       }
     }
 
@@ -311,7 +381,6 @@ export async function classifyText(
   { useGptFallback = true } = {}
 ) {
   try {
-    // Check if embeddings are loaded
     if (Object.keys(embeddings).length === 0) {
       console.warn("[Classify] No embeddings loaded. Using GPT fallback.");
       const fallback = await gptFallbackClassify(text);
@@ -333,7 +402,7 @@ export async function classifyText(
       };
     }
 
-    // Compute embedding for input
+    // Get embedding for input (try local first)
     const embeddingResult = await getEmbedding(text, apiKey);
     const inputEmbedding = embeddingResult.embedding;
     const embeddingTokens = embeddingResult.usage?.total_tokens || 0;
@@ -342,22 +411,41 @@ export async function classifyText(
     const best = classifyEmbedding(inputEmbedding);
     const threshold = best.label ? getCategoryThreshold(best.label) : 0.4;
 
-    console.log(`[Classify] Best match: ${best.label || "none"} (score: ${best.score.toFixed(4)}, threshold: ${threshold})`);
+    console.log(
+      `[Classify] Best: ${best.label || "none"} (score: ${best.score.toFixed(
+        4
+      )}, threshold: ${threshold})`
+    );
 
     // If score above threshold, return local result
     if (best.label && best.score >= threshold) {
-      console.log(`[Classify] ✅ Local classification (score ${best.score.toFixed(4)} >= threshold ${threshold})`);
+      console.log(
+        `[Classify] ✅ Local classification (${best.score.toFixed(
+          4
+        )} >= ${threshold})`
+      );
+      const embeddingCost = USE_LOCAL_EMBEDDINGS
+        ? 0
+        : (embeddingTokens / 1000) * 0.00013;
       return {
         prompt: text,
         label: best.label,
         score: best.score,
         source: "Local",
-        consumption: null,
+        usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
+        consumption: {
+          tokens: { embedding: embeddingTokens, total: embeddingTokens },
+          cost: { embeddings: embeddingCost, total: embeddingCost },
+        },
       };
     }
 
     // Score too low, use GPT fallback
-    console.log(`[Classify] Score ${best.score.toFixed(4)} < threshold ${threshold}, using GPT fallback`);
+    console.log(
+      `[Classify] Score ${best.score.toFixed(
+        4
+      )} < threshold ${threshold}, using GPT fallback`
+    );
 
     if (!useGptFallback || !embeddingClient) {
       return {
@@ -365,21 +453,27 @@ export async function classifyText(
         label: best.label || "unknown",
         score: best.score,
         source: "Local",
+        usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
         consumption: null,
       };
     }
 
     const fallback = await gptFallbackClassify(text);
     if (fallback) {
-      const embeddingCost = (embeddingTokens / 1000) * 0.00013;
-      const gptInputCost = ((fallback.tokens?.prompt_tokens || 0) / 1000000) * 0.15;
-      const gptOutputCost = ((fallback.tokens?.completion_tokens || 0) / 1000000) * 0.6;
+      const embeddingCost = USE_LOCAL_EMBEDDINGS
+        ? 0
+        : (embeddingTokens / 1000) * 0.00013;
+      const gptInputCost =
+        ((fallback.tokens?.prompt_tokens || 0) / 1000000) * 0.15;
+      const gptOutputCost =
+        ((fallback.tokens?.completion_tokens || 0) / 1000000) * 0.6;
 
       return {
         prompt: text,
         label: fallback.label,
         score: fallback.confidence,
         source: "fallback",
+        usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
         consumption: {
           tokens: {
             embedding: embeddingTokens,
@@ -396,14 +490,18 @@ export async function classifyText(
       };
     }
 
+    const embeddingCost = USE_LOCAL_EMBEDDINGS
+      ? 0
+      : (embeddingTokens / 1000) * 0.00013;
     return {
       prompt: text,
       label: best.label || "unknown",
       score: best.score || 0,
       source: "fallback",
+      usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
       consumption: {
         tokens: { embedding: embeddingTokens, total: embeddingTokens },
-        cost: { embeddings: (embeddingTokens / 1000) * 0.00013, total: (embeddingTokens / 1000) * 0.00013 },
+        cost: { embeddings: embeddingCost, total: embeddingCost },
       },
     };
   } catch (err) {
