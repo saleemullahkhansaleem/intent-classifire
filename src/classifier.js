@@ -1,12 +1,5 @@
 // src/classifier.js (UPDATED with local embedding support)
 import OpenAI from "openai";
-import {
-  loadEmbeddingsFromStorage,
-  saveEmbeddings,
-  invalidateCache,
-  getCachedEmbeddings,
-  reloadFromStorage,
-} from "./blobService.js";
 
 const EMBEDDING_SERVICE_URL =
   process.env.EMBEDDING_SERVICE_URL || "http://localhost:3001";
@@ -110,31 +103,7 @@ export async function initClassifier({ openaiApiKey } = {}) {
     embeddingClient = new OpenAI({ apiKey: openaiApiKey });
   }
 
-  // Load embeddings from Blob (production) or Database (fallback)
-  try {
-    console.log("[Classifier] Loading embeddings from Blob storage...");
-    embeddings = await loadEmbeddingsFromStorage();
-
-    if (embeddings && Object.keys(embeddings).length > 0) {
-      for (const categoryName of Object.keys(embeddings)) {
-        categoryThresholds[categoryName] = 0.4;
-      }
-      const totalExamples = Object.values(embeddings).reduce(
-        (sum, exs) => sum + (Array.isArray(exs) ? exs.length : 0),
-        0
-      );
-      console.log(
-        `[Classifier] ✅ Loaded ${
-          Object.keys(embeddings).length
-        } categories, ${totalExamples} embeddings from Blob`
-      );
-      return;
-    }
-  } catch (err) {
-    console.warn("[Classifier] Blob load failed:", err.message);
-  }
-
-  // Fallback: Load from database
+  // Load embeddings directly from database
   try {
     console.log("[Classifier] Loading embeddings from database...");
     const { initDatabase } = await import("./db/database.js");
@@ -160,7 +129,7 @@ export async function initClassifier({ openaiApiKey } = {}) {
       console.log(
         `[Classifier] ✅ Loaded ${
           Object.keys(embeddings).length
-        } categories, ${totalExamples} embeddings from database`
+        } categories, ${totalExamples} embeddings from database into memory`
       );
       return;
     }
@@ -183,41 +152,14 @@ export function clearClassifierCache() {
 }
 
 /**
- * Reload embeddings from storage
+ * Reload embeddings from database into memory
  */
 export async function reloadEmbeddings() {
-  console.log("[Classifier] Reloading embeddings...");
+  console.log("[Classifier] Reloading embeddings from database...");
 
   clearClassifierCache();
-  invalidateCache();
 
-  // Load fresh from Blob
-  try {
-    const storageEmbeddings = await reloadFromStorage();
-    if (storageEmbeddings && Object.keys(storageEmbeddings).length > 0) {
-      embeddings = storageEmbeddings;
-      categoryThresholds = {};
-
-      for (const categoryName of Object.keys(embeddings)) {
-        categoryThresholds[categoryName] = 0.4;
-      }
-
-      const totalExamples = Object.values(embeddings).reduce(
-        (sum, exs) => sum + (Array.isArray(exs) ? exs.length : 0),
-        0
-      );
-      console.log(
-        `[Classifier] ✅ Reloaded ${
-          Object.keys(embeddings).length
-        } categories, ${totalExamples} examples from Blob`
-      );
-      return;
-    }
-  } catch (err) {
-    console.warn("[Classifier] Blob reload failed:", err.message);
-  }
-
-  // Fallback: reload from database
+  // Load fresh from database
   try {
     const { initDatabase } = await import("./db/database.js");
     const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
@@ -242,7 +184,7 @@ export async function reloadEmbeddings() {
       console.log(
         `[Classifier] ✅ Reloaded ${
           Object.keys(embeddings).length
-        } categories, ${totalExamples} examples from database`
+        } categories, ${totalExamples} embeddings from database into memory`
       );
       return;
     }

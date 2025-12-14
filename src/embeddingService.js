@@ -5,11 +5,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { reloadEmbeddings } from "./classifier.js";
-import {
-  saveEmbeddings,
-  invalidateCache,
-  reloadFromStorage,
-} from "./blobService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -318,36 +313,25 @@ async function recomputeEmbeddingsFromDatabase(
   const wasTimeout = elapsed >= maxDuration;
   const wasLimited = maxExamples && totalExamples >= maxExamples;
 
-  // Save and reload embeddings if complete
-  if (!wasTimeout && !wasLimited) {
-    try {
-      const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
-      const freshEmbeddings = await getAllEmbeddings();
-      if (Object.keys(freshEmbeddings).length > 0) {
-        console.log("[Recompute] Saving embeddings to storage...");
-        await saveEmbeddings(freshEmbeddings);
-
-        console.log("[Recompute] Reloading from storage...");
-        const storageEmbeddings = await reloadFromStorage();
-
-        if (storageEmbeddings && Object.keys(storageEmbeddings).length > 0) {
-          console.log(
-            `[Recompute] ✅ Refreshed from storage (${
-              Object.keys(storageEmbeddings).length
-            } categories)`
-          );
-          await reloadEmbeddings();
-        } else {
-          console.warn(
-            "[Recompute] Failed to reload from storage, using database"
-          );
-          await reloadEmbeddings();
-        }
-      }
-    } catch (err) {
-      console.warn("[Recompute] Failed to save embeddings:", err.message);
-      await reloadEmbeddings();
-    }
+  // Immediately reload all embeddings from database into memory after recomputation
+  // This ensures embeddings are preloaded for fast classification requests
+  try {
+    console.log("[Recompute] Loading all embeddings from database into memory...");
+    await reloadEmbeddings();
+    const { getAllEmbeddings } = await import("./db/queries/embeddings.js");
+    const allEmbeddings = await getAllEmbeddings();
+    const categoryCount = Object.keys(allEmbeddings).length;
+    const totalEmbeddings = Object.values(allEmbeddings).reduce(
+      (sum, exs) => sum + (Array.isArray(exs) ? exs.length : 0),
+      0
+    );
+    console.log(
+      `[Recompute] ✅ Preloaded ${categoryCount} categories, ${totalEmbeddings} embeddings into memory`
+    );
+  } catch (err) {
+    console.warn("[Recompute] Failed to preload embeddings into memory:", err.message);
+    // Still try to reload even if we can't get stats
+    await reloadEmbeddings();
   }
 
   // Calculate costs (free if using local)
