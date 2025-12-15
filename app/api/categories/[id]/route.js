@@ -5,7 +5,7 @@ import {
   updateCategory,
   deleteCategory,
 } from "@/src/db/queries/categories.js";
-import { getExamplesByCategoryId } from "@/src/db/queries/examples.js";
+import { getExamplesByCategoryIdLightweight } from "@/src/db/queries/examples.js";
 import { initDatabase } from "@/src/db/database.js";
 
 let dbInitialized = false;
@@ -37,8 +37,8 @@ export async function GET(request, { params }) {
       );
     }
 
-    // Include examples with full objects (including IDs)
-    const examples = await getExamplesByCategoryId(categoryId);
+    // Include examples without embedding data for fast loading (lightweight query)
+    const examples = await getExamplesByCategoryIdLightweight(categoryId);
     category.examples = examples;
 
     return NextResponse.json(category);

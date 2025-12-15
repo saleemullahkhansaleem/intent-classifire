@@ -16,6 +16,39 @@ export async function getExamplesByCategoryId(categoryId) {
 }
 
 /**
+ * Get examples for a category without embedding data (lightweight, fast)
+ * Only returns id, text, and embedding status for UI display
+ */
+export async function getExamplesByCategoryIdLightweight(categoryId) {
+  const db = getDb();
+  const result = await db.query(
+    `SELECT 
+      id, 
+      text, 
+      (embedding IS NOT NULL) as hasEmbedding,
+      created_at,
+      updated_at
+    FROM examples 
+    WHERE category_id = $1 
+    ORDER BY created_at`,
+    [categoryId]
+  );
+  const rows = result.rows || result;
+  // Map hasEmbedding to embedding field for UI compatibility
+  // Handle both lowercase and uppercase column names from different databases
+  return rows.map(row => {
+    const hasEmbedding = row.hasembedding !== undefined ? row.hasembedding : row.hasEmbedding;
+    return {
+      id: row.id,
+      text: row.text,
+      embedding: hasEmbedding ? true : null, // Use boolean/null for UI (truthy check works)
+      created_at: row.created_at,
+      updated_at: row.updated_at
+    };
+  });
+}
+
+/**
  * Get only uncomputed examples (where embedding IS NULL) for a category
  */
 export async function getUncomputedExamplesByCategoryId(categoryId) {

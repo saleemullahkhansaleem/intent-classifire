@@ -29,6 +29,11 @@ async function getPostgresClient() {
     );
   }
 
+  // Note: The `pg` library internally uses deprecated `url.parse()` for connection strings.
+  // This is a known issue in the library and will be fixed in future versions.
+  // The deprecation warning can be safely ignored for now, or we can suppress it.
+  // The connection string is validated by the library itself.
+
   const pool = new Pool({
     connectionString,
     ssl: connectionString.includes("sslmode=require")

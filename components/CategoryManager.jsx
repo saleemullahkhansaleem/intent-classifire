@@ -253,16 +253,37 @@ export default function CategoryManager() {
       const result = await response.json();
 
       // Store consumption data if available
-      if (result.consumption) {
-        setRecomputeConsumption(result.consumption);
+      if (result.stats?.consumption) {
+        setRecomputeConsumption(result.stats.consumption);
+      }
+
+      // Get accurate count from stats
+      const computedCount = result.stats?.success || 0;
+      const failedCount = result.stats?.failed || 0;
+      
+      let description = "Embeddings recomputed successfully! ";
+      if (computedCount > 0) {
+        description += `Computed ${computedCount} embedding${computedCount !== 1 ? 's' : ''}.`;
+        if (failedCount > 0) {
+          description += ` ${failedCount} failed.`;
+        }
+      } else {
+        description += "No new embeddings to compute.";
       }
 
       toast({
         title: "Success",
-        description: `Embeddings recomputed successfully! Processed ${result.labelsProcessed || result.categoriesProcessed || 0
-          } categories with ${result.totalExamples || 0} examples.`,
+        description,
         variant: "success",
       });
+
+      // Refresh categories list to update completion percentages
+      await fetchCategories();
+      
+      // Refresh selected category details if one is selected
+      if (selectedCategoryId) {
+        await fetchCategoryDetails(selectedCategoryId);
+      }
     } catch (error) {
       console.error("Error recomputing:", error);
       toast({

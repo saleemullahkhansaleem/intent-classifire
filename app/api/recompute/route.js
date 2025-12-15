@@ -17,7 +17,21 @@ export async function POST(request) {
     return NextResponse.json({
         success: true,
         message: "Recomputation completed.",
-        stats
+        stats: {
+            ...stats,
+            consumption: {
+                tokens: {
+                    input: stats.totalTokens || 0,
+                    output: 0,
+                    total: stats.totalTokens || 0,
+                },
+                cost: {
+                    embeddings: 0, // Local embeddings are free
+                    gpt: 0,
+                    total: 0,
+                },
+            }
+        }
     });
   } catch (error) {
     console.error("Error recomputing embeddings:", error);
