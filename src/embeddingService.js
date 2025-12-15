@@ -12,7 +12,7 @@ const projectRoot = path.resolve(__dirname, "..");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.Openai;
 const EMBEDDING_SERVICE_URL =
-  process.env.EMBEDDING_SERVICE_URL || "http://localhost:3001";
+  process.env.EMBEDDING_SERVICE_URL || "http://localhost:3000";
 const USE_LOCAL_EMBEDDINGS = process.env.USE_LOCAL_EMBEDDINGS !== "false"; // Default: true
 
 /**

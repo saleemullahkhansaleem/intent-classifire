@@ -4,24 +4,14 @@ import { classifyText, initClassifier } from "@/src/classifier.js";
 
 // Initialize classifier on first import
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OpenAI;
-let classifierInitialized = false;
 
-async function ensureClassifierInitialized() {
-  if (!classifierInitialized) {
-    console.log("[Classify Route] Initializing classifier at startup...");
-    const startTime = Date.now();
-    await initClassifier({ openaiApiKey: OPENAI_API_KEY });
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`[Classify Route] ✅ Classifier initialized in ${elapsed}s (embeddings pre-loaded)`);
-    classifierInitialized = true;
-  }
-}
+// We can rely on ClassifierCache.init() being idempotent and fast if already initialized
+// But it's good practice to call it once globally if possible, or lazily.
+// Next.js hot reloading can mess with global state, but our Cache singleton handles it.
+initClassifier().catch(err => console.error("Failed to init classifier:", err));
 
 export async function POST(request) {
   try {
-    // Ensure embeddings are pre-loaded before processing
-    await ensureClassifierInitialized();
-
     const body = await request.json();
     const { prompt, prompts } = body;
 
@@ -48,13 +38,18 @@ export async function POST(request) {
 
     // Classify all prompts (always return an array of results)
     const results = [];
-    for (const p of inputPrompts) {
-      const classification = await classifyText(p, OPENAI_API_KEY, {
-        useGptFallback: true,
-      });
-      // Source is already set by classifyText ("Local" or "fallback")
-      results.push(classification);
-    }
+    // Process in parallel for speed if multiple prompts
+    await Promise.all(inputPrompts.map(async (p) => {
+        try {
+            const classification = await classifyText(p, OPENAI_API_KEY, {
+                useGptFallback: true,
+            });
+            results.push(classification);
+        } catch (e) {
+            console.error(`Failed to classify '${p}':`, e);
+            results.push({ error: "Classification failed", prompt: p });
+        }
+    }));
 
     return NextResponse.json({ results });
   } catch (error) {
