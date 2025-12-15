@@ -8,8 +8,14 @@ let categoryThresholds = {};
 let isInitialized = false;
 
 // Statistics for monitoring
-let lastLoadTime = null;
+let lastLoadTime = 0; // Timestamp
 let itemCount = 0;
+
+// Vercel Serverless Cache Invalidation Strategy:
+// We store a global content timestamp in the database (settings table).
+// If the cache's lastLoadTime < DB timestamp, we must reload.
+const CACHE_TTL_MS = 60000; // Check DB every 1 minute if cache is warm
+let lastCheckTime = 0;
 
 const logPrefix = "[Classifier Cache]";
 
@@ -23,32 +29,35 @@ export const ClassifierCache = {
     console.log(`${logPrefix} Reloading from database...`);
 
     try {
-      // Dynamic imports to avoid circular dependencies if any, and keep this module lightweight until needed
       const { initDatabase } = await import("../../db/database.js");
       const { getAllEmbeddings } = await import("../../db/queries/embeddings.js");
       const { getAllCategories } = await import("../../db/queries/categories.js");
+      const { getSetting, updateSetting } = await import("../../db/queries/settings.js"); // NEW
 
       await initDatabase();
+
       const dbEmbeddings = await getAllEmbeddings();
       const categories = await getAllCategories();
 
-      // Atomic replacement of in-memory state
       if (dbEmbeddings) {
         embeddings = dbEmbeddings;
-
-        // Update thresholds
         categoryThresholds = {};
         for (const cat of categories) {
           categoryThresholds[cat.name] = cat.threshold || 0.4;
         }
 
-        // Update stats
         itemCount = Object.values(embeddings).reduce(
           (sum, exs) => sum + (Array.isArray(exs) ? exs.length : 0),
           0
         );
-        lastLoadTime = new Date();
+
+        lastLoadTime = Date.now();
+        lastCheckTime = Date.now();
         isInitialized = true;
+
+        // Update global timestamp in DB so other instances know to reload
+        // converting to string for DB storage
+        await updateSetting('embeddings_updated_at', lastLoadTime.toString());
 
         console.log(`${logPrefix} ✅ Loaded ${Object.keys(embeddings).length} categories, ${itemCount} embeddings.`);
       } else {
@@ -57,9 +66,7 @@ export const ClassifierCache = {
         itemCount = 0;
       }
     } catch (err) {
-      console.error(`${logPrefix} ❌ Failed to reload:`, err.message);
-      // If we fail to reload, we generally keep the old cache unless strictly required to clear
-      // But if not initialized, we remain uninitialized
+      console.error(`${logPrefix} ❌ Reload failed:`, err.message);
     }
   },
 
@@ -67,8 +74,35 @@ export const ClassifierCache = {
    * Initialize only if not already initialized.
    */
   async init() {
-    if (isInitialized) return;
+    if (isInitialized) {
+        await this.checkFreshness();
+        return;
+    }
     await this.reload();
+  },
+
+  /**
+   * Check if we need to reload based on DB timestamp.
+   * Only checks periodically to save DB calls.
+   */
+  async checkFreshness() {
+    const now = Date.now();
+    if (now - lastCheckTime < CACHE_TTL_MS) return; // Too soon to check
+
+    try {
+        const { getSetting } = await import("../../db/queries/settings.js");
+        const lastUpdateStr = await getSetting('embeddings_updated_at');
+        if (lastUpdateStr) {
+            const dbTimestamp = parseInt(lastUpdateStr, 10);
+            if (dbTimestamp > lastLoadTime) {
+                console.log(`${logPrefix} 🔄 Detected stale cache (DB: ${dbTimestamp} > Local: ${lastLoadTime}). Reloading...`);
+                await this.reload();
+            }
+        }
+        lastCheckTime = now;
+    } catch (e) {
+        console.warn(`${logPrefix} Freshness check failed:`, e.message);
+    }
   },
 
   /**
@@ -97,7 +131,7 @@ export const ClassifierCache = {
   },
 
   /**
-   * Force clear (mainly for testing)
+   * Force clear
    */
   clear() {
     embeddings = {};
