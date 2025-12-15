@@ -39,6 +39,9 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
        await ClassifierCache.init();
     }
 
+    // Ensure cache is fresh relative to DB (lightweight, TTL-limited check)
+    await ClassifierCache.checkFreshness();
+
     const embeddings = ClassifierCache.getEmbeddings();
 
     // 1. Get Embedding (try local first as per generator logic)

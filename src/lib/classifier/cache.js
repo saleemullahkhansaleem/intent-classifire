@@ -14,7 +14,8 @@ let itemCount = 0;
 // Vercel Serverless Cache Invalidation Strategy:
 // We store a global content timestamp in the database (settings table).
 // If the cache's lastLoadTime < DB timestamp, we must reload.
-const CACHE_TTL_MS = 60000; // Check DB every 1 minute if cache is warm
+// Reduced TTL so recompute changes propagate more quickly to warm instances.
+const CACHE_TTL_MS = 10000; // Check DB every 10 seconds if cache is warm
 let lastCheckTime = 0;
 
 const logPrefix = "[Classifier Cache]";
