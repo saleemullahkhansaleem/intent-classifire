@@ -77,9 +77,18 @@ export default function Home() {
     for (const r of res.results) {
       const c = r.consumption;
       if (!c) continue;
-      agg.tokens.input += c.tokens?.input ?? 0;
-      agg.tokens.output += c.tokens?.output ?? 0;
-      agg.tokens.total += c.tokens?.total ?? 0;
+      // Aggregate tokens - handle both structures:
+      // - Local: { embedding: X, total: X }
+      // - Fallback: { embedding: X, gpt_input: Y, gpt_output: Z, total: X+Y+Z }
+      const embeddingTokens = c.tokens?.embedding ?? 0;
+      const gptInput = c.tokens?.gpt_input ?? 0;
+      const gptOutput = c.tokens?.gpt_output ?? 0;
+      
+      agg.tokens.input += gptInput; // GPT input tokens
+      agg.tokens.output += gptOutput; // GPT output tokens
+      agg.tokens.total += c.tokens?.total ?? 0; // Total (includes embedding + GPT)
+      
+      // Aggregate costs
       agg.cost.embeddings += c.cost?.embeddings ?? 0;
       agg.cost.gpt += c.cost?.gpt ?? 0;
       agg.cost.total += c.cost?.total ?? 0;

@@ -45,9 +45,14 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
     const embeddings = ClassifierCache.getEmbeddings();
 
     // 1. Get Embedding (try local first as per generator logic)
-    // Note: We don't track cost for embedding here because user requested removal of embedding cost
     const embeddingResult = await getEmbedding(text);
     const inputEmbedding = embeddingResult.embedding;
+    const embeddingTokens = embeddingResult.usage?.total_tokens || 0;
+    
+    // Calculate embedding cost (local = free, OpenAI = $0.00013 per 1K tokens)
+    const embeddingCost = USE_LOCAL_EMBEDDINGS 
+      ? 0 
+      : (embeddingTokens / 1000) * 0.00013;
 
     // 2. Find Best Match using optimized engine
     const best = findBestMatch(inputEmbedding, embeddings);
@@ -60,7 +65,6 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
     // 3. Check Threshold
     if (best.label && best.score >= threshold) {
         // SUCCESS: Local Classification
-        // REQUIREMENT: Completely remove embedding cost from classification consumption.
         return {
             prompt: text,
             label: best.label,
@@ -68,8 +72,14 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
             source: "Local",
             usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
             consumption: {
-                tokens: { embedding: 0, total: 0 },
-                cost: { embeddings: 0, total: 0 },
+                tokens: { 
+                    embedding: embeddingTokens,
+                    total: embeddingTokens 
+                },
+                cost: { 
+                    embeddings: embeddingCost,
+                    total: embeddingCost 
+                },
             },
         };
     }
@@ -97,6 +107,8 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
     if (fallback) {
         const gptInputCost = ((fallback.tokens?.prompt_tokens || 0) / 1000000) * 0.15;
         const gptOutputCost = ((fallback.tokens?.completion_tokens || 0) / 1000000) * 0.6;
+        const totalCost = embeddingCost + gptInputCost + gptOutputCost;
+        const totalTokens = embeddingTokens + (fallback.tokens?.total_tokens || 0);
 
         return {
             prompt: text,
@@ -106,15 +118,15 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
             usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
             consumption: {
               tokens: {
-                embedding: 0, // Hidden
+                embedding: embeddingTokens,
                 gpt_input: fallback.tokens?.prompt_tokens || 0,
                 gpt_output: fallback.tokens?.completion_tokens || 0,
-                total: (fallback.tokens?.total_tokens || 0),
+                total: totalTokens,
               },
               cost: {
-                embeddings: 0, // Hidden
+                embeddings: embeddingCost,
                 gpt: gptInputCost + gptOutputCost,
-                total: gptInputCost + gptOutputCost,
+                total: totalCost,
               },
             },
         };
