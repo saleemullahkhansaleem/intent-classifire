@@ -1,6 +1,6 @@
 /**
  * GPT Fallback Classifier
- * Used when local embedding score is below threshold.
+ * Used when embedding similarity score is below threshold.
  */
 
 import OpenAI from "openai";

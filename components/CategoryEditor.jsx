@@ -11,7 +11,6 @@ export default function CategoryEditor({
   const [description, setDescription] = useState(
     initialData?.description || ""
   );
-  const [threshold, setThreshold] = useState(initialData?.threshold || 0.4);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -23,7 +22,6 @@ export default function CategoryEditor({
       await onSave({
         name: name.trim(),
         description: description.trim() || null,
-        threshold: parseFloat(threshold) || 0.4,
       });
     } catch (error) {
       console.error("Error saving category:", error);
@@ -61,30 +59,6 @@ export default function CategoryEditor({
           rows={3}
           disabled={saving}
         />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-1">
-          Threshold
-          <span className="ml-2 text-xs text-muted-foreground">
-            (0.0 - 1.0)
-          </span>
-        </label>
-        <input
-          type="number"
-          value={threshold}
-          onChange={(e) => setThreshold(e.target.value)}
-          min="0"
-          max="1"
-          step="0.01"
-          className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-          placeholder="0.4"
-          disabled={saving}
-        />
-        <p className="mt-1 text-xs text-muted-foreground">
-          Classification score must be &gt;= this threshold to use local
-          embeddings instead of GPT fallback (default: 0.4)
-        </p>
       </div>
 
       <div className="flex justify-end gap-2 pt-2">

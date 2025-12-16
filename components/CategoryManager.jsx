@@ -90,10 +90,6 @@ export default function CategoryManager() {
   const [deletingCategoryId, setDeletingCategoryId] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false); // Track if we've loaded once
-  const [globalThresholdDialogOpen, setGlobalThresholdDialogOpen] =
-    useState(false);
-  const [globalThreshold, setGlobalThreshold] = useState("");
-  const [updatingGlobalThreshold, setUpdatingGlobalThreshold] = useState(false);
   const { toast } = useToast();
 
   // Lazy load: Only fetch when component first mounts (when Manage tab is clicked)
@@ -296,59 +292,6 @@ export default function CategoryManager() {
     }
   };
 
-  const handleSetGlobalThreshold = async () => {
-    const thresholdValue = parseFloat(globalThreshold);
-    if (isNaN(thresholdValue) || thresholdValue < 0 || thresholdValue > 1) {
-      toast({
-        title: "Invalid Input",
-        description: "Threshold must be a number between 0.0 and 1.0",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setUpdatingGlobalThreshold(true);
-    try {
-      const response = await fetch("/api/categories/threshold/global", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threshold: thresholdValue }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.details ||
-          errorData.error ||
-          "Failed to update global threshold"
-        );
-      }
-
-      const result = await response.json();
-      toast({
-        title: "Success",
-        description: `Threshold set to ${thresholdValue.toFixed(2)} for all ${result.count
-          } categories`,
-        variant: "success",
-      });
-      setGlobalThresholdDialogOpen(false);
-      setGlobalThreshold("");
-      await fetchCategories();
-      // Refresh selected category if one is selected
-      if (selectedCategoryId) {
-        await fetchCategoryDetails(selectedCategoryId);
-      }
-    } catch (error) {
-      console.error("Error updating global threshold:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update global threshold",
-        variant: "destructive",
-      });
-    } finally {
-      setUpdatingGlobalThreshold(false);
-    }
-  };
 
   // Skeleton for loading categories list
   if (loading) {
@@ -388,12 +331,6 @@ export default function CategoryManager() {
             className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
           >
             + New Category
-          </button>
-          <button
-            onClick={() => setGlobalThresholdDialogOpen(true)}
-            className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
-          >
-            Set Global Threshold
           </button>
           <button
             onClick={handleRecompute}
@@ -440,12 +377,6 @@ export default function CategoryManager() {
                 </span>
               )}
             </div>
-
-            {category.threshold !== undefined && (
-              <span className="ml-2 text-xs opacity-75">
-                [t:{category.threshold.toFixed(2)}]
-              </span>
-            )}
           </button>
         ))}
         {categories.length === 0 && (
@@ -520,67 +451,6 @@ export default function CategoryManager() {
               className="px-4 py-2 bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors"
             >
               Delete
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Global Threshold Dialog */}
-      <Dialog
-        open={globalThresholdDialogOpen}
-        onOpenChange={setGlobalThresholdDialogOpen}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Set Global Threshold</DialogTitle>
-            <DialogDescription>
-              Set the threshold value for all categories at once. This will
-              update the threshold for all {categories.length} categor
-              {categories.length !== 1 ? "ies" : "y"}. Threshold must be between
-              0.0 and 1.0.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <label
-              htmlFor="global-threshold"
-              className="block text-sm font-medium text-foreground mb-2"
-            >
-              Threshold Value
-            </label>
-            <input
-              id="global-threshold"
-              type="number"
-              min="0"
-              max="1"
-              step="0.01"
-              value={globalThreshold}
-              onChange={(e) => setGlobalThreshold(e.target.value)}
-              placeholder="0.40"
-              className="w-full px-3 py-2 border border-input bg-background text-foreground rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              disabled={updatingGlobalThreshold}
-            />
-            <p className="mt-2 text-xs text-muted-foreground">
-              Enter a value between 0.0 and 1.0. This will be applied to all
-              categories.
-            </p>
-          </div>
-          <DialogFooter>
-            <button
-              onClick={() => {
-                setGlobalThresholdDialogOpen(false);
-                setGlobalThreshold("");
-              }}
-              disabled={updatingGlobalThreshold}
-              className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSetGlobalThreshold}
-              disabled={updatingGlobalThreshold || !globalThreshold}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
-            >
-              {updatingGlobalThreshold ? "Updating..." : "Set Threshold"}
             </button>
           </DialogFooter>
         </DialogContent>

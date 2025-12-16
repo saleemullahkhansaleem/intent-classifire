@@ -4,18 +4,6 @@
 import { getDb } from "../database.js";
 
 /**
- * Get all examples for a category
- */
-export async function getExamplesByCategoryId(categoryId) {
-  const db = getDb();
-  const result = await db.query(
-    "SELECT * FROM examples WHERE category_id = $1 ORDER BY created_at",
-    [categoryId]
-  );
-  return result.rows || result;
-}
-
-/**
  * Get examples for a category without embedding data (lightweight, fast)
  * Only returns id, text, and embedding status for UI display
  */
@@ -88,24 +76,16 @@ export async function createExample(categoryId, text, embedding = null) {
 /**
  * Bulk create examples
  */
-export async function bulkCreateExamples(
-  categoryId,
-  examples,
-  embeddings = []
-) {
+export async function bulkCreateExamples(categoryId, examples) {
   const db = getDb();
   const results = [];
 
-  for (let i = 0; i < examples.length; i++) {
-    const text = examples[i];
-    const embedding = embeddings[i] || null;
-    const embeddingJson = embedding ? JSON.stringify(embedding) : null;
-
+  for (const text of examples) {
     try {
       const result = await db.query(
-        `INSERT INTO examples (category_id, text, embedding)
-         VALUES ($1, $2, $3) RETURNING *`,
-        [categoryId, text, embeddingJson]
+        `INSERT INTO examples (category_id, text)
+         VALUES ($1, $2) RETURNING *`,
+        [categoryId, text]
       );
       results.push({ success: true, example: result.rows?.[0] || result[0] });
     } catch (error) {
@@ -119,13 +99,12 @@ export async function bulkCreateExamples(
 /**
  * Update example
  */
-export async function updateExample(id, text, embedding = null) {
+export async function updateExample(id, text) {
   const db = getDb();
-  const embeddingJson = embedding ? JSON.stringify(embedding) : null;
   const result = await db.query(
-    `UPDATE examples SET text = $1, embedding = $2, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $3 RETURNING *`,
-    [text, embeddingJson, id]
+    `UPDATE examples SET text = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2 RETURNING *`,
+    [text, id]
   );
   const rows = result.rows || result;
   return rows[0];

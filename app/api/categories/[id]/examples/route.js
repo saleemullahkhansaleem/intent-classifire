@@ -1,15 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCategoryById } from "@/src/db/queries/categories.js";
 import { createExample } from "@/src/db/queries/examples.js";
-import { initDatabase } from "@/src/db/database.js";
-
-let dbInitialized = false;
-async function ensureDbInitialized() {
-  if (!dbInitialized) {
-    await initDatabase();
-    dbInitialized = true;
-  }
-}
+import { ensureDbInitialized } from "@/src/db/utils.js";
 
 export async function POST(request, { params }) {
   try {

@@ -5,15 +5,7 @@ import {
   updateExample,
   deleteExample,
 } from "@/src/db/queries/examples.js";
-import { initDatabase } from "@/src/db/database.js";
-
-let dbInitialized = false;
-async function ensureDbInitialized() {
-  if (!dbInitialized) {
-    await initDatabase();
-    dbInitialized = true;
-  }
-}
+import { ensureDbInitialized } from "@/src/db/utils.js";
 
 export async function PUT(request, { params }) {
   try {

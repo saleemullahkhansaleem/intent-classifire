@@ -4,7 +4,6 @@
  */
 
 let embeddings = {};
-let categoryThresholds = {};
 let isInitialized = false;
 
 // Statistics for monitoring
@@ -33,19 +32,14 @@ export const ClassifierCache = {
       const { initDatabase } = await import("../../db/database.js");
       const { getAllEmbeddings } = await import("../../db/queries/embeddings.js");
       const { getAllCategories } = await import("../../db/queries/categories.js");
-      const { getSetting, updateSetting } = await import("../../db/queries/settings.js"); // NEW
+      const { getSetting, updateSetting } = await import("../../db/queries/settings.js");
 
       await initDatabase();
 
       const dbEmbeddings = await getAllEmbeddings();
-      const categories = await getAllCategories();
 
       if (dbEmbeddings) {
         embeddings = dbEmbeddings;
-        categoryThresholds = {};
-        for (const cat of categories) {
-          categoryThresholds[cat.name] = cat.threshold || 0.4;
-        }
 
         itemCount = Object.values(embeddings).reduce(
           (sum, exs) => sum + (Array.isArray(exs) ? exs.length : 0),
@@ -115,12 +109,12 @@ export const ClassifierCache = {
   },
 
   /**
-   * Get threshold for a specific category.
-   * @param {string} category
+   * Get threshold from environment variable (static for all categories).
    * @returns {number}
    */
-  getThreshold(category) {
-    return categoryThresholds[category] || 0.4;
+  getThreshold() {
+    const threshold = parseFloat(process.env.CLASSIFICATION_THRESHOLD);
+    return isNaN(threshold) ? 0.4 : threshold;
   },
 
   /**
@@ -136,7 +130,6 @@ export const ClassifierCache = {
    */
   clear() {
     embeddings = {};
-    categoryThresholds = {};
     isInitialized = false;
     itemCount = 0;
     console.log(`${logPrefix} cleared.`);

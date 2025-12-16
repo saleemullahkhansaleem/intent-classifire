@@ -9,7 +9,6 @@ A minimal, high-performance intent classification system with embedding-based si
 - Node.js 18+
 - PostgreSQL (Coolify, Neon, Supabase, or Vercel Postgres)
 - OpenAI API key
-- Vercel Blob token (for production embeddings storage)
 
 ### Installation
 
@@ -20,7 +19,7 @@ npm install
 # Create .env with database and API keys
 echo "POSTGRES_URL=postgresql://..." >> .env.local
 echo "OPENAI_API_KEY=sk-..." >> .env.local
-echo "BLOB_READ_WRITE_TOKEN=vercel_blob_..." >> .env.local
+echo "CLASSIFICATION_THRESHOLD=0.4" >> .env.local
 
 # Start dev server
 npm run dev
@@ -32,8 +31,7 @@ Visit `http://localhost:3000`
 
 ### Storage
 
-- **Embeddings**: Pre-computed vectors stored in Vercel Blob
-- **Database**: PostgreSQL (categories, examples, metadata)
+- **Database**: PostgreSQL (categories, examples, embeddings, metadata)
 - **Cache**: In-memory example embeddings (loaded at startup)
 
 ### Classification Flow
@@ -45,9 +43,9 @@ Visit `http://localhost:3000`
 
 ### Cost Optimization
 
-- **Input embeddings**: $0.00013 per prompt (only during classify)
-- **Example embeddings**: $0.00013 per example (only during recompute)
-- **GPT fallback**: $0.15/1M input tokens, $0.6/1M output tokens (logged to console)
+- **Input embeddings**: $0.00013 per 1K tokens (OpenAI text-embedding-3-large)
+- **Example embeddings**: $0.00013 per 1K tokens (only during recompute)
+- **GPT fallback**: $0.15/1M input tokens, $0.6/1M output tokens
 
 ## API Reference
 
@@ -78,7 +76,7 @@ curl -X POST http://localhost:3000/api/classify \
 curl -X POST http://localhost:3000/api/recompute
 ```
 
-Processes all uncomputed examples and syncs vectors to Blob.
+Processes all uncomputed examples and stores embeddings in the database.
 
 ### Categories (CRUD)
 
@@ -88,11 +86,11 @@ curl http://localhost:3000/api/categories
 
 # Create category
 curl -X POST http://localhost:3000/api/categories \
-  -d '{"name":"billing","description":"Billing questions","threshold":0.4}'
+  -d '{"name":"billing","description":"Billing questions"}'
 
 # Update category
 curl -X PUT http://localhost:3000/api/categories/1 \
-  -d '{"name":"billing","threshold":0.5}'
+  -d '{"name":"billing","description":"Updated description"}'
 
 # Delete category
 curl -X DELETE http://localhost:3000/api/categories/1
@@ -116,17 +114,6 @@ curl -X PUT http://localhost:3000/api/categories/1/examples/5 \
 curl -X DELETE http://localhost:3000/api/categories/1/examples/5
 ```
 
-### Thresholds
-
-```bash
-# Get category threshold
-curl http://localhost:3000/api/categories/1/threshold
-
-# Set category threshold
-curl -X POST http://localhost:3000/api/categories/1/threshold \
-  -d '{"threshold":0.5}'
-```
-
 ## Environment Variables
 
 ```env
@@ -136,12 +123,13 @@ POSTGRES_URL=postgresql://user:pass@host:5432/dbname
 # Required: OpenAI API key for embeddings and fallback
 OPENAI_API_KEY=sk-proj-...
 
-# Required: Vercel Blob token for production
-BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
-
 # Optional: Models to use
 EMBEDDING_MODEL=text-embedding-3-large
 FALLBACK_MODEL=gpt-4o-mini
+
+# Optional: Classification threshold (0.0-1.0, default: 0.4)
+# Used for all categories - similarity score must be >= this to use local classification
+CLASSIFICATION_THRESHOLD=0.4
 ```
 
 ## Deployment
@@ -160,7 +148,6 @@ FALLBACK_MODEL=gpt-4o-mini
 
 Use any Node.js hosting with:
 - PostgreSQL database access
-- Vercel Blob token (for embeddings storage)
 - OpenAI API key access
 
 ## Performance
@@ -197,6 +184,5 @@ npm run lint   # Run linter
 The app uses:
 - Next.js 14 (React + API routes)
 - PostgreSQL (via pg driver)
-- Vercel Blob (embeddings storage)
 - OpenAI API (embeddings + GPT-4o-mini fallback)
 - Tailwind CSS + Radix UI (components)

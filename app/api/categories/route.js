@@ -4,16 +4,7 @@ import {
   getAllCategoriesWithStatus,
   createCategory,
 } from "@/src/db/queries/categories.js";
-import { initDatabase } from "@/src/db/database.js";
-
-// Initialize database on first import
-let dbInitialized = false;
-async function ensureDbInitialized() {
-  if (!dbInitialized) {
-    await initDatabase();
-    dbInitialized = true;
-  }
-}
+import { ensureDbInitialized } from "@/src/db/utils.js";
 
 export async function GET() {
   try {
@@ -34,7 +25,7 @@ export async function POST(request) {
   try {
     await ensureDbInitialized();
     const body = await request.json();
-    const { name, description, threshold } = body;
+    const { name, description } = body;
 
     if (!name) {
       return NextResponse.json(
@@ -45,8 +36,7 @@ export async function POST(request) {
 
     const category = await createCategory(
       name,
-      description || null,
-      threshold || 0.4
+      description || null
     );
 
     return NextResponse.json({

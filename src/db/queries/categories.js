@@ -23,30 +23,17 @@ export async function getCategoryById(id) {
 }
 
 /**
- * Get category by name
- */
-export async function getCategoryByName(name) {
-  const db = getDb();
-  const result = await db.query("SELECT * FROM categories WHERE name = $1", [
-    name,
-  ]);
-  const rows = result.rows || result;
-  return rows[0] || null;
-}
-
-/**
  * Create a new category
  */
 export async function createCategory(
   name,
-  description = null,
-  threshold = 0.4
+  description = null
 ) {
   const db = getDb();
   const result = await db.query(
-    `INSERT INTO categories (name, description, threshold)
-     VALUES ($1, $2, $3) RETURNING *`,
-    [name, description, threshold]
+    `INSERT INTO categories (name, description)
+     VALUES ($1, $2) RETURNING *`,
+    [name, description]
   );
   const rows = result.rows || result;
   return rows[0];
@@ -68,10 +55,6 @@ export async function updateCategory(id, updates) {
   if (updates.description !== undefined) {
     fields.push(`description = $${paramIndex++}`);
     values.push(updates.description);
-  }
-  if (updates.threshold !== undefined) {
-    fields.push(`threshold = $${paramIndex++}`);
-    values.push(updates.threshold);
   }
 
   if (fields.length === 0) {
@@ -99,24 +82,6 @@ export async function deleteCategory(id) {
   await db.execute("DELETE FROM categories WHERE id = $1", [id]);
 }
 
-/**
- * Update category threshold
- */
-export async function updateCategoryThreshold(id, threshold) {
-  return updateCategory(id, { threshold });
-}
-
-/**
- * Update threshold for all categories
- */
-export async function updateAllCategoriesThreshold(threshold) {
-  const db = getDb();
-  const result = await db.query(
-    `UPDATE categories SET threshold = $1, updated_at = CURRENT_TIMESTAMP RETURNING *`,
-    [threshold]
-  );
-  return result.rows || result;
-}
 
 /**
  * Get category with embedding status (counts of computed/uncomputed examples)
@@ -170,7 +135,6 @@ export async function getAllCategoriesWithStatus() {
       c.id,
       c.name,
       c.description,
-      c.threshold,
       c.created_at,
       c.updated_at,
       COUNT(e.id) as examplesCount,
@@ -178,7 +142,7 @@ export async function getAllCategoriesWithStatus() {
       COUNT(CASE WHEN e.embedding IS NULL THEN 1 END) as uncomputedCount
      FROM categories c
      LEFT JOIN examples e ON c.id = e.category_id
-     GROUP BY c.id, c.name, c.description, c.threshold, c.created_at, c.updated_at
+     GROUP BY c.id, c.name, c.description, c.created_at, c.updated_at
      ORDER BY c.name`
   );
 
@@ -193,7 +157,6 @@ export async function getAllCategoriesWithStatus() {
       id: row.id,
       name: row.name,
       description: row.description,
-      threshold: row.threshold,
       created_at: row.created_at,
       updated_at: row.updated_at,
       examplesCount,

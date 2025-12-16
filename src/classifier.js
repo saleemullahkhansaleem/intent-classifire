@@ -1,11 +1,9 @@
-// src/classifier.js (Refactored Facade)
+// src/classifier.js
 import { ClassifierCache } from "./lib/classifier/cache.js";
 import { findBestMatch } from "./lib/classifier/engine.js";
 import { getEmbedding } from "./lib/embeddings/generator.js";
 import { gptFallbackClassify } from "./lib/classifier/fallback.js";
 import { getAllCategories } from "./db/queries/categories.js";
-
-const USE_LOCAL_EMBEDDINGS = process.env.USE_LOCAL_EMBEDDINGS !== "false";
 
 /**
  * Initialize classifier - load embeddings from database
@@ -15,23 +13,9 @@ export async function initClassifier() {
 }
 
 /**
- * Clear classifier cache
- */
-export function clearClassifierCache() {
-  ClassifierCache.clear();
-}
-
-/**
- * Reload embeddings from database into memory
- */
-export async function reloadEmbeddings() {
-  await ClassifierCache.reload();
-}
-
-/**
  * Main classification function
  */
-export async function classifyText(text, apiKey, { useGptFallback = true } = {}) {
+export async function classifyText(text, { useGptFallback = true } = {}) {
   try {
     // Ensure cache is ready (double check)
     if (!ClassifierCache.isReady()) {
@@ -44,33 +28,27 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
 
     const embeddings = ClassifierCache.getEmbeddings();
 
-    // 1. Get Embedding (try local first as per generator logic)
+    // Get embedding using OpenAI
     const embeddingResult = await getEmbedding(text);
     const inputEmbedding = embeddingResult.embedding;
     const embeddingTokens = embeddingResult.usage?.total_tokens || 0;
-    
-    // Calculate embedding cost (local = free, OpenAI = $0.00013 per 1K tokens)
-    const embeddingCost = USE_LOCAL_EMBEDDINGS 
-      ? 0 
-      : (embeddingTokens / 1000) * 0.00013;
+    const embeddingCost = (embeddingTokens / 1000) * 0.00013;
 
-    // 2. Find Best Match using optimized engine
+    // Find best match using optimized engine
     const best = findBestMatch(inputEmbedding, embeddings);
-    const threshold = best.label ? ClassifierCache.getThreshold(best.label) : 0.4;
+    const threshold = ClassifierCache.getThreshold();
 
     console.log(
       `[Classify] Best: ${best.label || "none"} (score: ${best.score.toFixed(4)}, threshold: ${threshold})`
     );
 
-    // 3. Check Threshold
+    // Check threshold
     if (best.label && best.score >= threshold) {
-        // SUCCESS: Local Classification
         return {
             prompt: text,
             label: best.label,
             score: best.score,
             source: "Local",
-            usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
             consumption: {
                 tokens: { 
                     embedding: embeddingTokens,
@@ -84,7 +62,7 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
         };
     }
 
-    // 4. Fallback
+    // Fallback to GPT
     console.log(`[Classify] Score ${best.score.toFixed(4)} < threshold, using GPT fallback`);
 
     if (!useGptFallback) {
@@ -93,14 +71,11 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
             label: best.label || "unknown",
             score: best.score,
             source: "Local",
-            usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
             consumption: null,
         };
     }
 
-    // Need categories for fallback prompt
-    // Ideally we shouldn't fetch DB here, but use cache or efficient query
-    // For now, fetching from DB is safe enough if low traffic, or we could add categories to Cache
+    // Get categories for fallback prompt
     const categories = await getAllCategories();
     const fallback = await gptFallbackClassify(text, categories);
 
@@ -115,7 +90,6 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
             label: fallback.label,
             score: fallback.confidence,
             source: "fallback",
-            usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
             consumption: {
               tokens: {
                 embedding: embeddingTokens,
@@ -138,7 +112,6 @@ export async function classifyText(text, apiKey, { useGptFallback = true } = {})
         label: best.label || "unknown",
         score: best.score || 0,
         source: "fallback",
-        usingLocalEmbeddings: USE_LOCAL_EMBEDDINGS,
         consumption: null,
     };
 

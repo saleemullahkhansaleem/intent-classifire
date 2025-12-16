@@ -4,7 +4,7 @@
  * Features:
  * - Batched concurrency
  * - Strict cache synchronization
- * - Cost tracking (though local is free)
+ * - Cost tracking
  */
 
 import { ClassifierCache } from "../classifier/cache.js";

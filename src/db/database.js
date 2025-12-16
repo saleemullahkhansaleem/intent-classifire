@@ -31,8 +31,7 @@ async function getPostgresClient() {
 
   // Note: The `pg` library internally uses deprecated `url.parse()` for connection strings.
   // This is a known issue in the library and will be fixed in future versions.
-  // The deprecation warning can be safely ignored for now, or we can suppress it.
-  // The connection string is validated by the library itself.
+  // The deprecation warning can be safely ignored.
 
   const pool = new Pool({
     connectionString,
@@ -95,11 +94,17 @@ export async function initDatabase() {
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       description TEXT,
-      threshold REAL DEFAULT 0.4,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  
+  // Remove threshold column if it exists (for existing databases)
+  try {
+    await db.execute(`ALTER TABLE categories DROP COLUMN IF EXISTS threshold`);
+  } catch (error) {
+    // Ignore if column doesn't exist
+  }
 
   // Examples table with embedding column
   await db.execute(`
@@ -134,22 +139,8 @@ export async function initDatabase() {
       "CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name)"
     );
   } catch (error) {
-    // Indexes might already exist - that's fine
-    if (!error.message.includes("already exists")) {
-      console.warn("[Database] Index creation note:", error.message);
-    }
+    // Indexes might already exist - ignore
   }
 
   console.log("[Database] Schema initialized successfully");
-}
-
-/**
- * Close database connection
- */
-export async function closeDatabase() {
-  if (postgresPool) {
-    await postgresPool.end();
-    postgresPool = null;
-    console.log("[Database] Connection closed");
-  }
 }

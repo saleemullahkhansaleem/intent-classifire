@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { recomputeEmbeddings } from "@/src/lib/embeddings/recomputer.js";
 
-const USE_LOCAL_EMBEDDINGS = process.env.USE_LOCAL_EMBEDDINGS !== "false"; // Default: true
-
 // Increase timeout for this route (Vercel has 10s limit on Hobby, 60s on Pro)
 export const maxDuration = 60;
 
@@ -16,11 +14,8 @@ export async function POST(request) {
     // Call the recomputer which handles DB, Concurrency, and Cache Sync
     const stats = await recomputeEmbeddings({ maxExamples });
 
-    // Calculate embedding cost based on whether using local or OpenAI
-    // OpenAI text-embedding-3-large: $0.00013 per 1K tokens
-    const embeddingCost = USE_LOCAL_EMBEDDINGS 
-      ? 0 
-      : ((stats.totalTokens || 0) / 1000) * 0.00013;
+    // Calculate embedding cost (OpenAI text-embedding-3-large: $0.00013 per 1K tokens)
+    const embeddingCost = ((stats.totalTokens || 0) / 1000) * 0.00013;
 
     return NextResponse.json({
         success: true,

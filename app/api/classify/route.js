@@ -3,11 +3,6 @@ import "dotenv/config";
 import { classifyText, initClassifier } from "@/src/classifier.js";
 
 // Initialize classifier on first import
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OpenAI;
-
-// We can rely on ClassifierCache.init() being idempotent and fast if already initialized
-// But it's good practice to call it once globally if possible, or lazily.
-// Next.js hot reloading can mess with global state, but our Cache singleton handles it.
 initClassifier().catch(err => console.error("Failed to init classifier:", err));
 
 export async function POST(request) {
@@ -38,10 +33,9 @@ export async function POST(request) {
 
     // Classify all prompts (always return an array of results)
     const results = [];
-    // Process in parallel for speed if multiple prompts
     await Promise.all(inputPrompts.map(async (p) => {
         try {
-            const classification = await classifyText(p, OPENAI_API_KEY, {
+            const classification = await classifyText(p, {
                 useGptFallback: true,
             });
             results.push(classification);

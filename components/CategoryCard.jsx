@@ -7,7 +7,6 @@ import { useToast } from "./ui/use-toast";
 export default function CategoryCard({ category, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [threshold, setThreshold] = useState(category.threshold || 0.4);
   const [name, setName] = useState(category.name);
   const [description, setDescription] = useState(category.description || "");
   const { toast } = useToast();
@@ -34,25 +33,6 @@ export default function CategoryCard({ category, onUpdate, onDelete }) {
         );
       }
 
-      // Update threshold separately
-      if (threshold !== category.threshold) {
-        const thresholdResponse = await fetch(
-          `/api/categories/${category.id}/threshold`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ threshold: parseFloat(threshold) }),
-          }
-        );
-
-        if (!thresholdResponse.ok) {
-          const errorData = await thresholdResponse.json().catch(() => ({}));
-          throw new Error(
-            errorData.details || errorData.error || "Failed to update threshold"
-          );
-        }
-      }
-
       toast({
         title: "Success",
         description: "Category updated successfully",
@@ -74,7 +54,6 @@ export default function CategoryCard({ category, onUpdate, onDelete }) {
   const handleCancel = () => {
     setName(category.name);
     setDescription(category.description || "");
-    setThreshold(category.threshold || 0.4);
     setEditing(false);
   };
 
@@ -108,28 +87,6 @@ export default function CategoryCard({ category, onUpdate, onDelete }) {
                 placeholder="Category description"
                 rows={2}
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">
-                Threshold
-                <span className="ml-2 text-xs text-muted-foreground">
-                  (0.0 - 1.0, default: 0.4)
-                </span>
-              </label>
-              <input
-                type="number"
-                value={threshold}
-                onChange={(e) => setThreshold(e.target.value)}
-                min="0"
-                max="1"
-                step="0.01"
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                placeholder="0.4"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Classification score must be &gt;= this threshold to use local
-                embeddings instead of GPT fallback
-              </p>
             </div>
             <div className="flex gap-2">
               <button
@@ -165,9 +122,6 @@ export default function CategoryCard({ category, onUpdate, onDelete }) {
                     <span>
                       {category.examplesCount || 0} example
                       {(category.examplesCount || 0) !== 1 ? "s" : ""}
-                    </span>
-                    <span>
-                      Threshold: {category.threshold?.toFixed(2) || "0.40"}
                     </span>
                   </div>
                 </div>

@@ -6,15 +6,7 @@ import {
   deleteCategory,
 } from "@/src/db/queries/categories.js";
 import { getExamplesByCategoryIdLightweight } from "@/src/db/queries/examples.js";
-import { initDatabase } from "@/src/db/database.js";
-
-let dbInitialized = false;
-async function ensureDbInitialized() {
-  if (!dbInitialized) {
-    await initDatabase();
-    dbInitialized = true;
-  }
-}
+import { ensureDbInitialized } from "@/src/db/utils.js";
 
 export async function GET(request, { params }) {
   try {
@@ -69,16 +61,6 @@ export async function PUT(request, { params }) {
 
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
-    if (body.threshold !== undefined) {
-      const threshold = parseFloat(body.threshold);
-      if (isNaN(threshold) || threshold < 0 || threshold > 1) {
-        return NextResponse.json(
-          { error: "Threshold must be between 0.0 and 1.0" },
-          { status: 400 }
-        );
-      }
-      updates.threshold = threshold;
-    }
 
     const updatedCategory = await updateCategory(categoryId, updates);
 
